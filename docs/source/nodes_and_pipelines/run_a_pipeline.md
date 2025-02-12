@@ -43,10 +43,10 @@ kedro run --runner=ThreadRunner
 ```
 
 ```{note}
-`SparkDataSet` doesn't work correctly with `ParallelRunner`. To add concurrency to the pipeline with `SparkDataSet`, you must use `ThreadRunner`.
+`SparkDataset` doesn't work correctly with `ParallelRunner`. To add concurrency to the pipeline with `SparkDataset`, you must use `ThreadRunner`.
 ```
 
-For more information on how to maximise concurrency when using Kedro with PySpark, please visit our guide on [how to build a Kedro pipeline with PySpark](../integrations/pyspark_integration.md).
+For more information on how to maximise concurrency when using Kedro with PySpark, read our guide on [how to build a Kedro pipeline with PySpark](../integrations/pyspark_integration.md).
 
 ## Custom runners
 
@@ -57,7 +57,7 @@ If the built-in Kedro runners do not meet your requirements, you can also define
 
 ```python
 # in src/<package_name>/runner.py
-from kedro.io import AbstractDataSet, DataCatalog, MemoryDataSet
+from kedro.io import AbstractDataset, DataCatalog, MemoryDataset
 from kedro.pipeline import Pipeline
 from kedro.runner.runner import AbstractRunner
 from pluggy import PluginManager
@@ -69,17 +69,17 @@ class DryRunner(AbstractRunner):
     neccessary data exists.
     """
 
-    def create_default_data_set(self, ds_name: str) -> AbstractDataSet:
-        """Factory method for creating the default data set for the runner.
+    def create_default_dataset(self, ds_name: str) -> AbstractDataset:
+        """Factory method for creating the default dataset for the runner.
 
         Args:
-            ds_name: Name of the missing data set
+            ds_name: Name of the missing dataset
         Returns:
-            An instance of an implementation of AbstractDataSet to be used
-            for all unregistered data sets.
+            An instance of an implementation of AbstractDataset to be used
+            for all unregistered datasets.
 
         """
-        return MemoryDataSet()
+        return MemoryDataset()
 
     def _run(
         self,
@@ -144,7 +144,6 @@ If a node has multiple inputs or outputs (e.g., `node(func, ["a", "b", "c"], ["d
 $ kedro run --async
 ...
 2020-03-24 09:20:01,482 - kedro.runner.sequential_runner - INFO - Asynchronous mode is enabled for loading and saving data
-2020-03-24 09:20:01,483 - kedro.io.data_catalog - INFO - Loading data from `example_iris_data` (CSVDataSet)...
 ...
 ```
 
@@ -198,14 +197,14 @@ By using `DataCatalog` from the IO module we are still able to write pure functi
 
 Through `DataCatalog`, we can control where inputs are loaded from, where intermediate variables get persisted and ultimately the location to which output variables are written.
 
-In a simple example, we define a `MemoryDataSet` called `xs` to store our inputs, save our input list `[1, 2, 3]` into `xs`, then instantiate `SequentialRunner` and call its `run` method with the pipeline and data catalog instances:
+In a simple example, we define a `MemoryDataset` called `xs` to store our inputs, save our input list `[1, 2, 3]` into `xs`, then instantiate `SequentialRunner` and call its `run` method with the pipeline and data catalog instances:
 
 <details>
 <summary><b>Click to expand</b></summary>
 
 
 ```python
-io = DataCatalog(dict(xs=MemoryDataSet()))
+io = DataCatalog(dict(xs=MemoryDataset()))
 ```
 
 ```python
@@ -234,95 +233,6 @@ Out[11]: {'v': 0.666666666666667}
 </details>
 
 
-
-## Output to a file
-
-We can also use IO to save outputs to a file. In this example, we define a custom `LambdaDataSet` that would serialise the output to a file locally:
-
-<details>
-<summary><b>Click to expand</b></summary>
-
-
-```python
-def save(value):
-    with open("./data/07_model_output/variance.pickle", "wb") as f:
-        pickle.dump(value, f)
-
-
-def load():
-    with open("./data/07_model_output/variance.pickle", "rb") as f:
-        return pickle.load(f)
-
-
-pickler = LambdaDataSet(load=load, save=save)
-io.add("v", pickler)
-```
-</details>
-
-It is important to make sure that the data catalog variable name `v` matches the name `v` in the pipeline definition.
-
-Next we can confirm that this `LambdaDataSet` behaves correctly:
-
-<details>
-<summary><b>Click to expand</b></summary>
-
-```python
-io.save("v", 5)
-```
-
-```python
-io.load("v")
-```
-
-`Ouput`:
-
-```Console
-Out[12]: 5
-```
-</details>
-
-Finally, let's run the pipeline again now and serialise the output:
-
-<details>
-<summary><b>Click to expand</b></summary>
-
-
-```python
-SequentialRunner().run(pipeline, catalog=io)
-```
-
-`Ouput`:
-
-```console
-Out[13]: {}
-```
-</details>
-
-The output has been persisted to a local file so we don't see it directly, but it can be retrieved from the catalog:
-
-<details>
-<summary><b>Click to expand</b></summary>
-
-
-```python
-io.load("v")
-```
-
-`Ouput`:
-
-```console
-Out[14]: 0.666666666666667
-```
-
-```python
-try:
-    os.remove("./data/07_model_output/variance.pickle")
-except FileNotFoundError:
-    pass
-```
-</details>
-
-
 ## Configure `kedro run` arguments
 
 The [Kedro CLI documentation](../development/commands_reference.md#run-the-project) lists the available CLI options for `kedro run`. You can alternatively supply a configuration file that contains the arguments to `kedro run`.
@@ -340,8 +250,8 @@ where `config.yml` is formatted as below (for example):
 run:
   tags: tag1, tag2, tag3
   pipeline: pipeline1
-  parallel: true
-  nodes_names: node1, node2
+  runner: ParallelRunner
+  node_names: node1, node2
   env: env1
 ```
 

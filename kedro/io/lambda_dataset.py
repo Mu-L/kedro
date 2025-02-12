@@ -1,24 +1,23 @@
-"""``LambdaDataset`` is an implementation of ``AbstractDataSet`` which allows for
+"""``LambdaDataset`` is an implementation of ``AbstractDataset`` which allows for
 providing custom load, save, and exists methods without extending
-``AbstractDataSet``.
+``AbstractDataset``.
 """
+
 from __future__ import annotations
 
 import warnings
 from typing import Any, Callable
 
-from kedro.io.core import AbstractDataSet, DatasetError
-
-# https://github.com/pylint-dev/pylint/issues/4300#issuecomment-1043601901
-LambdaDataSet: type[LambdaDataset]
+from kedro import KedroDeprecationWarning
+from kedro.io.core import AbstractDataset, DatasetError
 
 
-class LambdaDataset(AbstractDataSet):
-    """``LambdaDataset`` loads and saves data to a data set.
+class LambdaDataset(AbstractDataset):
+    """``LambdaDataset`` loads and saves data to a dataset.
     It relies on delegating to specific implementation such as csv, sql, etc.
 
     ``LambdaDataset`` class captures Exceptions while performing operations on
-    composed ``Dataset`` implementations. The composed data set is
+    composed ``Dataset`` implementations. The composed dataset is
     responsible for providing information on how to resolve the issue when
     possible. This information should be available through str(error).
 
@@ -32,11 +31,11 @@ class LambdaDataset(AbstractDataSet):
         >>> def load() -> pd.DataFrame:
         >>>     raise FileNotFoundError("'{}' csv file not found."
         >>>                             .format(file_name))
-        >>> data_set = LambdaDataset(load, None)
+        >>> dataset = LambdaDataset(load, None)
     """
 
     def _describe(self) -> dict[str, Any]:
-        def _to_str(func):
+        def _to_str(func: Any) -> str | None:
             if not func:
                 return None
             try:
@@ -53,21 +52,21 @@ class LambdaDataset(AbstractDataSet):
 
         return descr
 
-    def _save(self, data: Any) -> None:
-        if not self.__save:
-            raise DatasetError(
-                "Cannot save to data set. No 'save' function "
-                "provided when LambdaDataset was created."
-            )
-        self.__save(data)
-
     def _load(self) -> Any:
         if not self.__load:
             raise DatasetError(
-                "Cannot load data set. No 'load' function "
+                "Cannot load dataset. No 'load' function "
                 "provided when LambdaDataset was created."
             )
         return self.__load()
+
+    def _save(self, data: Any) -> None:
+        if not self.__save:
+            raise DatasetError(
+                "Cannot save to dataset. No 'save' function "
+                "provided when LambdaDataset was created."
+            )
+        self.__save(data)
 
     def _exists(self) -> bool:
         if not self.__exists:
@@ -80,20 +79,20 @@ class LambdaDataset(AbstractDataSet):
         else:
             self.__release()
 
-    def __init__(  # noqa: too-many-arguments
+    def __init__(
         self,
         load: Callable[[], Any] | None,
         save: Callable[[Any], None] | None,
-        exists: Callable[[], bool] = None,
-        release: Callable[[], None] = None,
-        metadata: dict[str, Any] = None,
+        exists: Callable[[], bool] | None = None,
+        release: Callable[[], None] | None = None,
+        metadata: dict[str, Any] | None = None,
     ):
         """Creates a new instance of ``LambdaDataset`` with references to the
-        required input/output data set methods.
+        required input/output dataset methods.
 
         Args:
-            load: Method to load data from a data set.
-            save: Method to save data to a data set.
+            load: Method to load data from a dataset.
+            save: Method to save data to a dataset.
             exists: Method to check whether output data already exists.
             release: Method to release any cached information.
             metadata: Any arbitrary metadata.
@@ -103,6 +102,11 @@ class LambdaDataset(AbstractDataSet):
             DatasetError: If a method is specified, but is not a Callable.
 
         """
+
+        warnings.warn(
+            "`LambdaDataset` has been deprecated and will be removed in Kedro 0.20.0.",
+            KedroDeprecationWarning,
+        )
 
         for name, value in [
             ("load", load),
@@ -121,16 +125,3 @@ class LambdaDataset(AbstractDataSet):
         self.__exists = exists
         self.__release = release
         self.metadata = metadata
-
-
-def __getattr__(name):
-    if name == "LambdaDataSet":
-        alias = LambdaDataset
-        warnings.warn(
-            f"{repr(name)} has been renamed to {repr(alias.__name__)}, "
-            f"and the alias will be removed in Kedro 0.19.0",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return alias
-    raise AttributeError(f"module {repr(__name__)} has no attribute {repr(name)}")

@@ -1,13 +1,16 @@
-"""Common functions for e2e testing.
-"""
+"""Common functions for e2e testing."""
+
 from __future__ import annotations
 
 import os
 import re
 from contextlib import contextmanager
-from pathlib import Path
 from time import sleep, time
-from typing import Any, Callable, Iterator
+from typing import TYPE_CHECKING, Any, Callable
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+    from pathlib import Path
 
 
 @contextmanager
@@ -63,7 +66,7 @@ def wait_for(
         try:
             result = func(**kwargs)
             return result
-        except Exception as err:  # pylint: disable=broad-except
+        except Exception as err:
             if print_error:
                 print(err)
 
@@ -83,3 +86,32 @@ def parse_csv(text: str) -> list[str]:
         List of string tokens
     """
     return re.findall(r"\"(.+?)\"\s*,?", text)
+
+
+def clean_up_log(stdout: str) -> str:
+    """
+    Cleans up log output by removing duplicate lines, extra whitespaces,
+    and log levels (INFO, WARNING, ERROR) along with .py filenames.
+
+    Args:
+        stdout (str): The log output to be cleaned.
+
+    Returns:
+        str: Cleaned log output without unnecessary information.
+    """
+    cleaned_lines = []
+    already_extracted = set()
+
+    for line in stdout.split("\n"):
+        if any(word in line for word in ["WARNING", "INFO", "ERROR"]):
+            # Remove log levels and .py filenames
+            cleaned_line = re.sub(r"\b(INFO|WARNING|ERROR)\b|\s+\w+\.py:\d+", "", line)
+            cleaned_lines.append(cleaned_line.strip())
+            already_extracted.add(line)
+        elif line not in already_extracted:
+            cleaned_lines.append(line)
+
+    cleaned_output = "\n".join(cleaned_lines)
+    cleaned_output = re.sub(r"\s+", " ", cleaned_output)
+
+    return cleaned_output.strip()

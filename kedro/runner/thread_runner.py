@@ -2,19 +2,20 @@
 be used to run the ``Pipeline`` in parallel groups formed by toposort
 using threads.
 """
+
 from __future__ import annotations
 
 import warnings
-from collections import Counter
-from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
-from itertools import chain
+from concurrent.futures import Executor, ThreadPoolExecutor
+from typing import TYPE_CHECKING, Any
 
-from pluggy import PluginManager
+from kedro.runner.runner import AbstractRunner
 
-from kedro.io import DataCatalog, MemoryDataset
-from kedro.pipeline import Pipeline
-from kedro.pipeline.node import Node
-from kedro.runner.runner import AbstractRunner, run_node
+if TYPE_CHECKING:
+    from pluggy import PluginManager
+
+    from kedro.io import CatalogProtocol
+    from kedro.pipeline import Pipeline
 
 
 class ThreadRunner(AbstractRunner):
@@ -23,7 +24,12 @@ class ThreadRunner(AbstractRunner):
     using threads.
     """
 
-    def __init__(self, max_workers: int = None, is_async: bool = False):
+    def __init__(
+        self,
+        max_workers: int | None = None,
+        is_async: bool = False,
+        extra_dataset_patterns: dict[str, dict[str, Any]] | None = None,
+    ):
         """
         Instantiates the runner.
 
@@ -34,6 +40,9 @@ class ThreadRunner(AbstractRunner):
             is_async: If True, set to False, because `ThreadRunner`
                 doesn't support loading and saving the node inputs and
                 outputs asynchronously with threads. Defaults to False.
+            extra_dataset_patterns: Extra dataset factory patterns to be added to the catalog
+                during the run. This is used to set the default datasets to MemoryDataset
+                for `ThreadRunner`.
 
         Raises:
             ValueError: bad parameters passed
@@ -44,27 +53,15 @@ class ThreadRunner(AbstractRunner):
                 "node inputs and outputs asynchronously with threads. "
                 "Setting 'is_async' to False."
             )
-        super().__init__(is_async=False)
+        default_dataset_pattern = {"{default}": {"type": "MemoryDataset"}}
+        self._extra_dataset_patterns = extra_dataset_patterns or default_dataset_pattern
+        super().__init__(
+            is_async=False, extra_dataset_patterns=self._extra_dataset_patterns
+        )
 
-        if max_workers is not None and max_workers <= 0:
-            raise ValueError("max_workers should be positive")
+        self._max_workers = self._validate_max_workers(max_workers)
 
-        self._max_workers = max_workers
-
-    def create_default_data_set(self, ds_name: str) -> MemoryDataset:  # type: ignore
-        """Factory method for creating the default dataset for the runner.
-
-        Args:
-            ds_name: Name of the missing dataset.
-
-        Returns:
-            An instance of ``MemoryDataset`` to be used for all
-            unregistered datasets.
-
-        """
-        return MemoryDataset()
-
-    def _get_required_workers_count(self, pipeline: Pipeline):
+    def _get_required_workers_count(self, pipeline: Pipeline) -> int:
         """
         Calculate the max number of processes required for the pipeline
         """
@@ -81,18 +78,21 @@ class ThreadRunner(AbstractRunner):
             else required_threads
         )
 
-    def _run(  # noqa: too-many-locals,useless-suppression
+    def _get_executor(self, max_workers: int) -> Executor:
+        return ThreadPoolExecutor(max_workers=max_workers)
+
+    def _run(
         self,
         pipeline: Pipeline,
-        catalog: DataCatalog,
-        hook_manager: PluginManager,
-        session_id: str = None,
+        catalog: CatalogProtocol,
+        hook_manager: PluginManager | None = None,
+        session_id: str | None = None,
     ) -> None:
-        """The abstract interface for running pipelines.
+        """The method implementing threaded pipeline running.
 
         Args:
             pipeline: The ``Pipeline`` to run.
-            catalog: The ``DataCatalog`` from which to fetch data.
+            catalog: An implemented instance of ``CatalogProtocol`` from which to fetch data.
             hook_manager: The ``PluginManager`` to activate hooks.
             session_id: The id of the session.
 
@@ -100,58 +100,9 @@ class ThreadRunner(AbstractRunner):
             Exception: in case of any downstream node failure.
 
         """
-        nodes = pipeline.nodes
-        load_counts = Counter(chain.from_iterable(n.inputs for n in nodes))
-        node_dependencies = pipeline.node_dependencies
-        todo_nodes = set(node_dependencies.keys())
-        done_nodes: set[Node] = set()
-        futures = set()
-        done = None
-        max_workers = self._get_required_workers_count(pipeline)
-
-        with ThreadPoolExecutor(max_workers=max_workers) as pool:
-            while True:
-                ready = {n for n in todo_nodes if node_dependencies[n] <= done_nodes}
-                todo_nodes -= ready
-                for node in ready:
-                    futures.add(
-                        pool.submit(
-                            run_node,
-                            node,
-                            catalog,
-                            hook_manager,
-                            self._is_async,
-                            session_id,
-                        )
-                    )
-                if not futures:
-                    assert not todo_nodes, (todo_nodes, done_nodes, ready, done)
-                    break
-                done, futures = wait(futures, return_when=FIRST_COMPLETED)
-                for future in done:
-                    try:
-                        node = future.result()
-                    except Exception:
-                        self._suggest_resume_scenario(pipeline, done_nodes, catalog)
-                        raise
-                    done_nodes.add(node)
-                    self._logger.info("Completed node: %s", node.name)
-                    self._logger.info(
-                        "Completed %d out of %d tasks", len(done_nodes), len(nodes)
-                    )
-
-                    # Decrement load counts, and release any datasets we
-                    # have finished with.
-                    for data_set in node.inputs:
-                        load_counts[data_set] -= 1
-                        if (
-                            load_counts[data_set] < 1
-                            and data_set not in pipeline.inputs()
-                        ):
-                            catalog.release(data_set)
-                    for data_set in node.outputs:
-                        if (
-                            load_counts[data_set] < 1
-                            and data_set not in pipeline.outputs()
-                        ):
-                            catalog.release(data_set)
+        super()._run(
+            pipeline=pipeline,
+            catalog=catalog,
+            hook_manager=hook_manager,
+            session_id=session_id,
+        )

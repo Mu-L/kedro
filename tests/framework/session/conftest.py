@@ -3,8 +3,7 @@ from __future__ import annotations
 import logging
 from logging.handlers import QueueHandler, QueueListener
 from multiprocessing import Queue
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 import pytest
@@ -13,7 +12,6 @@ import yaml
 from dynaconf.validator import Validator
 
 from kedro import __version__ as kedro_version
-from kedro.framework.context.context import KedroContext
 from kedro.framework.hooks import hook_impl
 from kedro.framework.project import (
     _ProjectPipelines,
@@ -21,10 +19,15 @@ from kedro.framework.project import (
     configure_project,
 )
 from kedro.framework.session import KedroSession
-from kedro.io import DataCatalog
-from kedro.pipeline import Pipeline
 from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 from kedro.pipeline.node import Node, node
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from kedro.framework.context.context import KedroContext
+    from kedro.io import DataCatalog
+    from kedro.pipeline import Pipeline
 
 logger = logging.getLogger(__name__)
 
@@ -66,13 +69,13 @@ def local_config(tmp_path):
     boats_filepath = str(tmp_path / "boats.csv")
     return {
         "cars": {
-            "type": "pandas.CSVDataSet",
+            "type": "pandas.CSVDataset",
             "filepath": cars_filepath,
             "save_args": {"index": False},
             "versioned": True,
         },
         "boats": {
-            "type": "pandas.CSVDataSet",
+            "type": "pandas.CSVDataset",
             "filepath": boats_filepath,
             "versioned": True,
         },
@@ -122,7 +125,7 @@ def mock_pipeline() -> Pipeline:
     )
 
 
-class LogRecorder(logging.Handler):  # pylint: disable=abstract-method
+class LogRecorder(logging.Handler):
     """Record logs received from a process-safe log listener"""
 
     def __init__(self):
@@ -355,7 +358,7 @@ def _mock_imported_settings_paths(mocker, mock_settings):
     for path in [
         "kedro.framework.session.session.settings",
         "kedro.framework.project.settings",
-        "kedro.runner.parallel_runner.settings",
+        "kedro.runner.task.settings",
     ]:
         mocker.patch(path, mock_settings)
     return mock_settings
@@ -370,13 +373,9 @@ def mock_settings(mocker, project_hooks):
 
 
 @pytest.fixture
-def mock_session(
-    mock_settings, mock_package_name, tmp_path
-):  # pylint: disable=unused-argument
+def mock_session(mock_settings, mock_package_name, tmp_path):
     configure_project(mock_package_name)
-    session = KedroSession.create(
-        mock_package_name, tmp_path, extra_params={"params:key": "value"}
-    )
+    session = KedroSession.create(tmp_path, extra_params={"params:key": "value"})
     yield session
     session.close()
 

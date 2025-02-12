@@ -1,12 +1,16 @@
 import re
 
-# pylint: disable=unused-argument
 import numpy as np
 import pandas as pd
 import pytest
+from kedro_datasets.pandas import CSVDataset
 
 from kedro.io import DatasetError, MemoryDataset
-from kedro.io.memory_dataset import _copy_with_mode, _infer_copy_mode
+from kedro.io.memory_dataset import (
+    _copy_with_mode,
+    _infer_copy_mode,
+    _is_memory_dataset,
+)
 
 
 def _update_data(data, idx, jdx, value):
@@ -25,26 +29,6 @@ def _check_equals(data1, data2):
     if isinstance(data1, np.ndarray) and isinstance(data2, np.ndarray):
         return np.array_equal(data1, data2)
     return False  # pragma: no cover
-
-
-@pytest.fixture
-def dummy_numpy_array():
-    return np.array([[1, 4, 5], [2, 5, 6]])
-
-
-@pytest.fixture
-def dummy_dataframe():
-    return pd.DataFrame({"col1": [1, 2], "col2": [4, 5], "col3": [5, 6]})
-
-
-@pytest.fixture(params=["dummy_dataframe", "dummy_numpy_array"])
-def input_data(request):
-    return request.getfixturevalue(request.param)
-
-
-@pytest.fixture
-def new_data():
-    return pd.DataFrame({"col1": ["a", "b"], "col2": ["c", "d"], "col3": ["e", "f"]})
 
 
 @pytest.fixture
@@ -71,6 +55,9 @@ class TestMemoryDataset:
     def test_load_none(self):
         loaded_data = MemoryDataset(None).load()
         assert loaded_data is None
+
+    def test_ephemeral_attribute(self, memory_dataset):
+        assert memory_dataset._EPHEMERAL is True
 
     def test_load_infer_mode(
         self, memory_dataset, input_data, mocked_infer_mode, mocked_copy_with_mode
@@ -156,8 +143,14 @@ class TestMemoryDataset:
     @pytest.mark.parametrize(
         "input_data,expected",
         [
-            ("dummy_dataframe", "MemoryDataset(data=<DataFrame>)"),
-            ("dummy_numpy_array", "MemoryDataset(data=<ndarray>)"),
+            (
+                "dummy_dataframe",
+                "MemoryDataset(data=<DataFrame>)",
+            ),
+            (
+                "dummy_numpy_array",
+                "MemoryDataset(data=<ndarray>)",
+            ),
         ],
         indirect=["input_data"],
     )
@@ -165,13 +158,31 @@ class TestMemoryDataset:
         """Test string representation of the dataset"""
         assert expected in str(memory_dataset)
 
+    @pytest.mark.parametrize(
+        "input_data,expected",
+        [
+            (
+                "dummy_dataframe",
+                "kedro.io.memory_dataset.MemoryDataset(data='<DataFrame>')",
+            ),
+            (
+                "dummy_numpy_array",
+                "kedro.io.memory_dataset.MemoryDataset(data='<ndarray>')",
+            ),
+        ],
+        indirect=["input_data"],
+    )
+    def test_repr_representation(self, memory_dataset, input_data, expected):
+        """Test string representation of the dataset"""
+        assert expected in repr(memory_dataset)
+
     def test_exists(self, new_data):
         """Test `exists` method invocation"""
-        data_set = MemoryDataset()
-        assert not data_set.exists()
+        dataset = MemoryDataset()
+        assert not dataset.exists()
 
-        data_set.save(new_data)
-        assert data_set.exists()
+        dataset.save(new_data)
+        assert dataset.exists()
 
 
 @pytest.mark.parametrize("data", [["a", "b"], [{"a": "b"}, {"c": "d"}]])
@@ -218,9 +229,23 @@ def test_infer_mode_deepcopy(data):
 
 
 def test_infer_mode_assign():
-    class DataFrame:  # pylint: disable=too-few-public-methods
+    class DataFrame:
         pass
 
     data = DataFrame()
     copy_mode = _infer_copy_mode(data)
     assert copy_mode == "assign"
+
+
+@pytest.mark.parametrize(
+    "ds_or_type,expected_result",
+    [
+        ("MemoryDataset", True),
+        ("kedro.io.memory_dataset.MemoryDataset", True),
+        ("NotMemoryDataset", False),
+        (MemoryDataset(data=""), True),
+        (CSVDataset(filepath="abc.csv"), False),
+    ],
+)
+def test_is_memory_dataset(ds_or_type, expected_result):
+    assert _is_memory_dataset(ds_or_type) == expected_result

@@ -1,8 +1,8 @@
 # Prefect
 
-This page explains how to run your Kedro pipeline using [Prefect 2.0](https://www.prefect.io/products/core/), an open-source workflow management system.
+This page explains how to run your Kedro pipeline using [Prefect 2.0](https://www.prefect.io/opensource), an open-source workflow management system.
 
-The scope of this documentation is the deployment to a self hosted [Prefect Server](https://docs.prefect.io/2.10.17/host/), which is an open-source backend that makes it easy to monitor and execute your Prefect flows and automatically extends Prefect 2.0. We will use an [Agent that dequeues submitted flow runs from a Work Queue](https://docs.prefect.io/2.10.17/tutorial/deployments/#why-workpools-and-workers).
+The scope of this documentation is the deployment to a self hosted [Prefect Server](https://docs-2.prefect.io/latest/guides/host/), which is an open-source backend that makes it easy to monitor and execute your Prefect flows and automatically extends Prefect 2.0. We will use an [Agent that dequeues submitted flow runs from a Work Queue](https://docs-2.prefect.io/latest/concepts/deployments/#workers-and-work-pools).
 
 ```{note}
 This deployment has been tested using Kedro 0.18.10 with Prefect version 2.10.17. If you want to deploy with Prefect 1.0, we recommend you review [earlier versions of Kedro's Prefect deployment documentation](https://docs.kedro.org/en/0.18.9/deployment/prefect.html).
@@ -12,7 +12,7 @@ This deployment has been tested using Kedro 0.18.10 with Prefect version 2.10.17
 
 To use Prefect 2.0 and Prefect Server, ensure you have the following prerequisites in place:
 
-- [Prefect 2.0 is installed](https://docs.prefect.io/2.10.17/getting-started/installation/#installing-the-latest-version) on your machine
+- [Prefect 2.0 is installed](https://docs-2.prefect.io/latest/getting-started/installation/#installing-the-prefect-2-latest-version) on your machine
 
 ## Setup
 
@@ -40,7 +40,7 @@ Run a Prefect Server instance:
 prefect server start
 ```
 
-In a separate terminal, [create a work pool](https://docs.prefect.io/2.10.17/concepts/work-pools/#work-pool-configuration) to organize the work and [create a work queue](https://docs.prefect.io/2.10.17/concepts/work-pools/#work-queues) for your agent to pull from:
+In a separate terminal, [create a work pool](https://docs-2.prefect.io/latest/concepts/work-pools/#work-pool-configuration) to organise the work and [create a work queue](https://docs-2.prefect.io/latest/concepts/work-pools/#work-queues) for your agent to pull from:
 
 ```bash
 prefect work-pool create --type prefect-agent <work_pool_name>
@@ -57,7 +57,7 @@ prefect agent start --pool <work_pool_name> --work-queue <work_queue_name>
 
 ### Convert your Kedro pipeline to Prefect 2.0 flow
 
-To build a [Prefect flow](https://docs.prefect.io/core/concepts/flows.html) for your Kedro pipeline programmatically and register it with the Prefect API, use the following Python script, which should be stored in your project’s **root directory**:
+To build a [Prefect flow](https://docs-2.prefect.io/latest/concepts/flows/) for your Kedro pipeline programmatically and register it with the Prefect API, use the following Python script, which should be stored in your project’s **root directory**:
 
 ```python
 # <project_root>/register_prefect_flow.py
@@ -69,7 +69,7 @@ from kedro.framework.hooks.manager import _create_hook_manager
 from kedro.framework.project import pipelines
 from kedro.framework.session import KedroSession
 from kedro.framework.startup import bootstrap_project
-from kedro.io import DataCatalog, MemoryDataSet
+from kedro.io import DataCatalog, MemoryDataset
 from kedro.pipeline.node import Node
 from kedro.runner import run_node
 
@@ -163,9 +163,9 @@ def kedro_init(
     context = session.load_context()
     catalog = context.catalog
     logger.info("Registering datasets...")
-    unregistered_ds = pipeline.data_sets() - set(catalog.list())  # NOQA
+    unregistered_ds = pipeline.datasets() - set(catalog.list())
     for ds_name in unregistered_ds:
-        catalog.add(ds_name, MemoryDataSet())
+        catalog.add(ds_name, MemoryDataset())
     return {"catalog": catalog, "sess_id": session.session_id}
 
 
@@ -250,7 +250,7 @@ Be sure that your Prefect Server is up and running. Verify that the deployment s
 
 ### Run Prefect flow
 
-Now, having the flow registered, you can use [Prefect Server UI](https://docs.prefect.io/2.10.17/host/) to orchestrate and monitor it.
+Now, having the flow registered, you can use [Prefect Server UI](https://docs-2.prefect.io/latest/guides/host/) to orchestrate and monitor it.
 
 Navigate to http://localhost:4200/deployments to see your registered flow.
 

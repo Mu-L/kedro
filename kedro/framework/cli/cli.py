@@ -2,34 +2,36 @@
 
 This module implements commands available from the kedro CLI.
 """
+
+from __future__ import annotations
+
 import importlib
 import sys
-import webbrowser
+import traceback
 from collections import defaultdict
 from pathlib import Path
-from typing import Sequence
+from typing import TYPE_CHECKING, Any
 
 import click
 
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
 from kedro import __version__ as version
-from kedro.framework.cli.catalog import catalog_cli
+from kedro.framework.cli import BRIGHT_BLACK, ORANGE
 from kedro.framework.cli.hooks import get_cli_hook_manager
-from kedro.framework.cli.jupyter import jupyter_cli
-from kedro.framework.cli.micropkg import micropkg_cli
-from kedro.framework.cli.pipeline import pipeline_cli
-from kedro.framework.cli.project import project_group
-from kedro.framework.cli.registry import registry_cli
-from kedro.framework.cli.starters import create_cli
 from kedro.framework.cli.utils import (
     CONTEXT_SETTINGS,
     ENTRY_POINT_GROUPS,
     CommandCollection,
     KedroCliError,
+    LazyGroup,
     _get_entry_points,
     load_entry_points,
 )
-from kedro.framework.project import LOGGING  # noqa # noqa: unused-import
-from kedro.framework.startup import _is_project, bootstrap_project
+from kedro.framework.project import LOGGING  # noqa: F401
+from kedro.framework.startup import bootstrap_project
+from kedro.utils import _find_kedro_project, _is_project
 
 LOGO = rf"""
  _            _
@@ -43,16 +45,19 @@ v{version}
 
 @click.group(context_settings=CONTEXT_SETTINGS, name="Kedro")
 @click.version_option(version, "--version", "-V", help="Show version and exit")
-def cli():  # pragma: no cover
+def cli() -> None:  # pragma: no cover
     """Kedro is a CLI for creating and using Kedro projects. For more
     information, type ``kedro info``.
+
+    NOTE: If a command from a plugin conflicts with a built-in command from Kedro,
+    the command from the plugin will take precedence.
 
     """
     pass
 
 
 @cli.command()
-def info():
+def info() -> None:
     """Get more information about kedro."""
     click.secho(LOGO, fg="green")
     click.echo(
@@ -77,21 +82,40 @@ def info():
             click.echo(
                 f"{plugin_name}: {plugin_version} (entry points:{entrypoints_str})"
             )
-    else:
+    else:  # pragma: no cover
         click.echo("No plugins installed")
 
 
-@cli.command(short_help="See the kedro API docs and introductory tutorial.")
-def docs():
-    """Display the online API docs and introductory tutorial in the browser. (DEPRECATED)"""
-    deprecation_message = (
-        "DeprecationWarning: Command 'kedro docs' is deprecated and "
-        "will not be available from Kedro 0.19.0."
-    )
-    click.secho(deprecation_message, fg="red")
-    index_path = f"https://kedro.readthedocs.io/en/{version}"
-    click.echo(f"Opening {index_path}")
-    webbrowser.open(index_path)
+@click.group(
+    context_settings=CONTEXT_SETTINGS,
+    cls=LazyGroup,
+    name="Kedro",
+    lazy_subcommands={
+        "registry": "kedro.framework.cli.registry.registry",
+        "catalog": "kedro.framework.cli.catalog.catalog",
+        "ipython": "kedro.framework.cli.project.ipython",
+        "run": "kedro.framework.cli.project.run",
+        "micropkg": "kedro.framework.cli.micropkg.micropkg",
+        "package": "kedro.framework.cli.project.package",
+        "jupyter": "kedro.framework.cli.jupyter.jupyter",
+        "pipeline": "kedro.framework.cli.pipeline.pipeline",
+    },
+)
+def project_commands() -> None:
+    pass  # pragma: no cover
+
+
+@click.group(
+    context_settings=CONTEXT_SETTINGS,
+    name="Kedro",
+    cls=LazyGroup,
+    lazy_subcommands={
+        "new": "kedro.framework.cli.starters.new",
+        "starter": "kedro.framework.cli.starters.starter",
+    },
+)
+def global_commands() -> None:
+    pass  # pragma: no cover
 
 
 def _init_plugins() -> None:
@@ -118,12 +142,12 @@ class KedroCLI(CommandCollection):
 
     def main(
         self,
-        args=None,
-        prog_name=None,
-        complete_var=None,
-        standalone_mode=True,
-        **extra,
-    ):
+        args: Any | None = None,
+        prog_name: Any | None = None,
+        complete_var: Any | None = None,
+        standalone_mode: bool = True,
+        **extra: Any,
+    ) -> Any:
         if self._metadata:
             extra.update(obj=self._metadata)
 
@@ -145,11 +169,47 @@ class KedroCLI(CommandCollection):
             )
         # click.core.main() method exits by default, we capture this and then
         # exit as originally intended
+
         except SystemExit as exc:
             self._cli_hook_manager.hook.after_command_run(
                 project_metadata=self._metadata, command_args=args, exit_code=exc.code
             )
+
+            # When CLI is run outside of a project, project_groups are not registered
+            catch_exception = "click.exceptions.UsageError: No such command"
+            # click convert exception handles to error message
+            if catch_exception in traceback.format_exc() and not self.project_groups:
+                warn = click.style(
+                    "\nKedro project not found in this directory. ",
+                    fg=ORANGE,
+                    bold=True,
+                )
+                result = (
+                    click.style("Project specific commands such as ")
+                    + click.style("'run' ", fg="cyan")
+                    + "or "
+                    + click.style("'jupyter' ", fg="cyan")
+                    + "are only available within a project directory."
+                )
+                message = warn + result
+                hint = (
+                    click.style(
+                        "\nHint: Kedro is looking for a file called ", fg=BRIGHT_BLACK
+                    )
+                    + click.style("'pyproject.toml", fg="magenta")
+                    + click.style(
+                        ", is one present in your current working directory?",
+                        fg=BRIGHT_BLACK,
+                    )
+                )
+                click.echo(message)
+                click.echo(hint)
             sys.exit(exc.code)
+        except Exception:
+            self._cli_hook_manager.hook.after_command_run(
+                project_metadata=self._metadata, command_args=args, exit_code=1
+            )
+            raise
 
     @property
     def global_groups(self) -> Sequence[click.MultiCommand]:
@@ -157,29 +217,19 @@ class KedroCLI(CommandCollection):
         combines them with the built-in ones (eventually overriding the
         built-in ones if they are redefined by plugins).
         """
-        return [cli, create_cli, *load_entry_points("global")]
+        return [cli, *load_entry_points("global"), global_commands]
 
     @property
     def project_groups(self) -> Sequence[click.MultiCommand]:
-        # noqa: line-too-long
         """Property which loads all project command groups from the
         project and the plugins, then combines them with the built-in ones.
         Built-in commands can be overridden by plugins, which can be
         overridden by a custom project cli.py.
-        See https://kedro.readthedocs.io/en/stable/extend_kedro/common_use_cases.html#use-case-3-how-to-add-or-modify-cli-commands
+        See https://docs.kedro.org/en/stable/extend_kedro/common_use_cases.html#use-case-3-how-to-add-or-modify-cli-commands
         on how to add this.
         """
         if not self._metadata:
             return []
-
-        built_in = [
-            catalog_cli,
-            jupyter_cli,
-            pipeline_cli,
-            micropkg_cli,
-            project_group,
-            registry_cli,
-        ]
 
         plugins = load_entry_points("project")
 
@@ -189,23 +239,25 @@ class KedroCLI(CommandCollection):
         except ModuleNotFoundError:
             # return only built-in commands and commands from plugins
             # (plugins can override built-in commands)
-            return [*built_in, *plugins]
+            return [*plugins, project_commands]
 
         # fail badly if cli.py exists, but has no `cli` in it
         if not hasattr(project_cli, "cli"):
             raise KedroCliError(
                 f"Cannot load commands from {self._metadata.package_name}.cli"
             )
-        user_defined = project_cli.cli  # type: ignore
+        user_defined = project_cli.cli
         # return built-in commands, plugin commands and user defined commands
         # (overriding happens as follows built-in < plugins < cli.py)
-        return [*built_in, *plugins, user_defined]
+        return [user_defined, *plugins, project_commands]
 
 
-def main():  # pragma: no cover
+def main() -> None:  # pragma: no cover
     """Main entry point. Look for a ``cli.py``, and, if found, add its
     commands to `kedro`'s before invoking the CLI.
     """
     _init_plugins()
-    cli_collection = KedroCLI(project_path=Path.cwd())
+    cli_collection = KedroCLI(
+        project_path=_find_kedro_project(Path.cwd()) or Path.cwd()
+    )
     cli_collection()

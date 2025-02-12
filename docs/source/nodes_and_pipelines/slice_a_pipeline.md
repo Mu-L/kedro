@@ -1,6 +1,13 @@
 # Slice a pipeline
 
-Sometimes it is desirable to run a subset, or a 'slice' of a pipeline's nodes. In this page, we illustrate the programmatic options that Kedro provides. You can also use the [Kedro CLI to pass parameters to `kedro run`](../development/commands_reference.md#run-the-project) command and slice a pipeline.
+Sometimes it is desirable to run a subset, or a 'slice' of a pipeline's nodes. There are two primary ways to achieve this:
+
+
+1. **Visually through Kedro-Viz:** This approach allows you to visually choose and slice pipeline nodes, which then generates a run command for executing the slice within your Kedro project. Detailed steps on how to achieve this are available in the Kedro-Viz documentation: [Slice a Pipeline](https://docs.kedro.org/projects/kedro-viz/en/stable/slice_a_pipeline.html).
+
+![](../meta/images/slice_pipeline_kedro_viz.gif)
+
+2. **Programmatically with the Kedro CLI.** You can also use the [Kedro CLI to pass parameters to `kedro run`](../development/commands_reference.md#run-the-project) command and slice a pipeline. In this page, we illustrate the programmatic options that Kedro provides.
 
 Let's look again at the example pipeline from the [pipeline introduction documentation](./pipeline_introduction.md#how-to-build-a-pipeline), which computes the variance of a set of numbers:
 
@@ -296,17 +303,17 @@ Outputs: v
 ```
 </details>
 
-To demonstrate this, let us save the intermediate output `n` using a `JSONDataSet`.
+To demonstrate this, let us save the intermediate output `n` using a `JSONDataset`.
 
 <details>
 <summary><b>Click to expand</b></summary>
 
 ```python
-from kedro_datasets.pandas import JSONDataSet
-from kedro.io import DataCatalog, MemoryDataSet
+from kedro_datasets.pandas import JSONDataset
+from kedro.io import DataCatalog, MemoryDataset
 
-n_json = JSONDataSet(filepath="./data/07_model_output/len.json")
-io = DataCatalog(dict(xs=MemoryDataSet([1, 2, 3]), n=n_json))
+n_json = JSONDataset(filepath="./data/07_model_output/len.json")
+io = DataCatalog(dict(xs=MemoryDataset([1, 2, 3]), n=n_json))
 ```
 </details>
 

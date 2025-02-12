@@ -1,4 +1,4 @@
-# Automated Testing
+# Automated testing
 
 An important step towards achieving high code quality and maintainability in your Kedro project is the use of automated tests. Let's look at how you can set this up.
 ## Introduction
@@ -19,25 +19,51 @@ There are many testing frameworks available for Python. One of the most popular 
 
 Let's look at how you can start working with `pytest` in your Kedro project.
 
-### Install `pytest`
+### Install test requirements
+Before getting started with test requirements, it is important to ensure you have installed your project locally. This allows you to test different parts of your project by importing them into your test files.
 
-Install `pytest` as you would install other packages with `pip`, making sure your [project's virtual environment is active](../get_started/install.md#create-a-virtual-environment-for-your-kedro-project).
 
+To install your project including all the project-specific dependencies and test requirements:
+1. Add the following section to the `pyproject.toml` file located in the project root:
+```toml
+[project.optional-dependencies]
+dev = [
+    "pytest-cov",
+    "pytest-mock",
+    "pytest",
+]
+```
+
+2. Navigate to the root directory of the project and run:
+```bash
+pip install ."[dev]"
+```
+
+Alternatively, you can individually install test requirements as you would install other packages with `pip`, making sure you have installed your project locally and your [project's virtual environment is active](../get_started/install.md#create-a-virtual-environment-for-your-kedro-project).
+
+1. To install your project, navigate to your project root and run the following command:
+
+```bash
+pip install -e .
+```
+>**NOTE**: The option `-e` installs an editable version of your project, allowing you to make changes to the project files without needing to re-install them each time.
+
+2. Install test requirements one by one:
 ```bash
 pip install pytest
 ```
 
 ### Create a `/tests` directory
 
-Now that `pytest` is installed, you will need a place to put your tests. Create a `/tests` folder in the `/src` directory of your project.
+Now that `pytest` is installed, you will need a place to put your tests. Create a `/tests` folder in the root directory of your project.
 
 ```bash
-mkdir <project_root>/src/tests
+mkdir <project_root>/tests
 ```
 
 ### Test directory structure
 
-The subdirectories in your project's `/tests` directory should mirror the directory structure of your project's `/src/<package_name>` directory. All files in the `/tests` folder should be named `test_<file_being_tested>.py`. See an example `/src` folder below.
+The subdirectories in your project's `/tests` directory should mirror the directory structure of your project's `/src/<package_name>` directory. All files in the `/tests` folder should be named `test_<file_being_tested>.py`. See an example `/tests` folder below.
 
 ```
 src
@@ -49,52 +75,42 @@ src
 │           │   nodes.py
 │           │   ...
 │
-└───tests
-│   └───pipelines
-│       └───dataprocessing
-│           │   ...
-│           │   test_nodes.py
-│           │   ...
+tests
+└───pipelines
+│   └───dataprocessing
+│       │   ...
+│       │   test_nodes.py
+│       │   ...
 ```
 
 ### Create an example test
 
-Now that you have a place to put your tests, you can create an example test in the new file `/src/tests/test_run.py`. The example test simply checks that the project_path attribute of a specially-defined `KedroContext` object has been correctly set.
+Now that you have a place to put your tests, you can create an example test in the new file `/src/tests/test_run.py`.
+This example test demonstrates how to programmatically execute a `kedro run` using the `KedroSession` class.
 
 ```
-import pytest
-from kedro.config import ConfigLoader
-from kedro.framework.context import KedroContext
-from kedro.framework.hooks import _create_hook_manager
+from pathlib import Path
+from kedro.framework.session import KedroSession
+from kedro.framework.startup import bootstrap_project
 
+class TestKedroRun:
+    def test_kedro_run(self):
+        bootstrap_project(Path.cwd())
 
-@pytest.fixture
-def config_loader():
-    return ConfigLoader(conf_source=str(Path.cwd()))
-
-
-@pytest.fixture
-def project_context(config_loader):
-    return KedroContext(
-        package_name=<package_name>,
-        project_path=Path.cwd(),
-        config_loader=config_loader,
-        hook_manager=_create_hook_manager(),
-    )
-
-class TestProjectContext:
-    def test_project_path(self, project_context):
-        assert project_context.project_path == Path.cwd()
+        with KedroSession.create(project_path=Path.cwd()) as session:
+            assert session.run() is not None
 ```
 
 This test is redundant, but it introduces a few of `pytest`'s core features and demonstrates the layout of a test file:
-- [Fixtures](https://docs.pytest.org/en/7.1.x/explanation/fixtures.html#about-fixtures) are used to define resources used in tests.
 - Tests are implemented in methods or functions beginning with `test_` and classes beginning with `Test`.
 - The `assert` statement is used to compare the result of the test with an expected value.
+
+Although this specific example does not utilise fixtures, they are an essential part of pytest for defining reusable resources across tests. See [Fixtures](https://docs.pytest.org/en/7.1.x/explanation/fixtures.html#about-fixtures)
 
 Tests should be named as descriptively as possible, especially if you are working with other people. For example, it is easier to understand the purpose of a test with the name `test_node_passes_with_valid_input` than a test with the name `test_passes`.
 
 You can read more about the [basics of using `pytest` on the getting started page](https://docs.pytest.org/en/7.1.x/getting-started.html). For help writing your own tests and using all of the features of `pytest`, see the [project documentation](https://docs.pytest.org/).
+
 
 ### Run your tests
 
@@ -112,7 +128,7 @@ If you created the example test in the previous section, you should see the foll
 ...
 collected 1 item
 
-src/tests/test_run.py .                                                  [100%]
+tests/test_run.py .                                                  [100%]
 
 ============================== 1 passed in 0.38s ===============================
 ```

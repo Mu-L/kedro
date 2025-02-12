@@ -10,12 +10,12 @@ Here are some typical use cases for running a packaged Kedro project as a Databr
 
 - **Data engineering pipeline**: the output of your Kedro project is a file or set of files containing cleaned and processed data.
 - **Machine learning with MLflow**: your Kedro project runs an ML model; metrics about your experiments are tracked in MLflow.
-- **Automated and scheduled runs**: your Kedro project should be [run on Databricks automatically](https://docs.databricks.com/workflows/jobs/schedule-jobs.html#add-a-job-schedule).
+- **Automated and scheduled runs**: your Kedro project should be [run on Databricks automatically](https://docs.databricks.com/en/jobs/scheduled.html#add-a-job-schedule).
 - **CI/CD integration**: you have a CI/CD pipeline that produces a packaged Kedro project.
 
 Running your packaged project as a Databricks job is very different from running it from a Databricks notebook. The Databricks job cluster has to be provisioned and started for each run, which is significantly slower than running it as a notebook on a cluster that has already been started. In addition, there is no way to change your project's code once it has been packaged. Instead, you must change your code, create a new package, and then upload it to Databricks again.
 
-For those reasons, the packaging approach is unsuitable for development projects where rapid iteration is necessary. For guidance on developing a Kedro project for Databricks in a rapid build-test loop, see the [development workflow guide](./databricks_ide_development_workflow.md).
+For those reasons, the packaging approach is unsuitable for development projects where rapid iteration is necessary. For guidance on developing a Kedro project for Databricks in a rapid build-test loop, see the [development workflow guide](./databricks_ide_databricks_asset_bundles_workflow.md).
 
 ## What this page covers
 
@@ -33,12 +33,11 @@ For those reasons, the packaging approach is unsuitable for development projects
 The sequence of steps described in this section is as follows:
 
 1. [Note your Databricks username and host](#note-your-databricks-username-and-host)
-2. [Install Kedro and the databricks CLI in a new virtual environment](#install-kedro-and-the-databricks-cli-in-a-new-virtual-environment)
+2. [Install Kedro and the Databricks CLI in a new virtual environment](#install-kedro-and-the-databricks-cli-in-a-new-virtual-environment)
 3. [Authenticate the Databricks CLI](#authenticate-the-databricks-cli)
 4. [Create a new Kedro project](#create-a-new-kedro-project)
-5. [Create an entry point for Databricks](#create-an-entry-point-for-databricks)
-6. [Package your project](#package-your-project)
-7. [Upload project data and configuration to DBFS](#upload-project-data-and-configuration-to-dbfs)
+5. [Package your project](#package-your-project)
+6. [Upload project data and configuration to DBFS](#upload-project-data-and-configuration-to-dbfs)
 
 ### Note your Databricks username and host
 
@@ -49,10 +48,10 @@ Find your Databricks username in the top right of the workspace UI and the host 
 ![Find Databricks host and username](../../meta/images/find_databricks_host_and_username.png)
 
 ```{note}
-Your databricks host must include the protocol (`https://`).
+Your Databricks host must include the protocol (`https://`).
 ```
 
-### Install Kedro and the databricks CLI in a new virtual environment
+### Install Kedro and the Databricks CLI in a new virtual environment
 
 The following commands will create a new `conda` environment, activate it, and then install Kedro and the Databricks CLI.
 
@@ -78,7 +77,7 @@ pip install kedro databricks-cli
 
 **Now, you must authenticate the Databricks CLI with your Databricks instance.**
 
-[Refer to the Databricks documentation](https://docs.databricks.com/dev-tools/cli/index.html#set-up-authentication) for a complete guide on how to authenticate your CLI. The key steps are:
+[Refer to the Databricks documentation](https://docs.databricks.com/en/dev-tools/cli/authentication.html) for a complete guide on how to authenticate your CLI. The key steps are:
 
 1. Create a personal access token for your user on your Databricks instance.
 2. Run `databricks configure --token`.
@@ -95,62 +94,9 @@ kedro new --starter=databricks-iris
 
 This command creates a new Kedro project using the `databricks-iris` starter template. Name your new project `iris-databricks` for consistency with the rest of this guide.
 
-### Create an entry point for Databricks
-
-The default entry point of a Kedro project uses a Click command line interface (CLI), which is not compatible with Databricks. To run your project as a Databricks job, you must define a new entry point specifically for use on Databricks.
-
-The `databricks-iris` starter has this entry point pre-built, so there is no extra work to do here, but generally you must **create an entry point manually for your own projects using the following steps**:
-
-1. **Create an entry point script**: Create a new file in `<project_root>/src/iris_databricks` named `databricks_run.py`. Copy the following code to this file:
-
-```python
-import argparse
-import logging
-
-from kedro.framework.project import configure_project
-from kedro.framework.session import KedroSession
-
-
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--env", dest="env", type=str)
-    parser.add_argument("--conf-source", dest="conf_source", type=str)
-    parser.add_argument("--package-name", dest="package_name", type=str)
-
-    args = parser.parse_args()
-    env = args.env
-    conf_source = args.conf_source
-    package_name = args.package_name
-
-    # https://kb.databricks.com/notebooks/cmd-c-on-object-id-p0.html
-    logging.getLogger("py4j.java_gateway").setLevel(logging.ERROR)
-    logging.getLogger("py4j.py4j.clientserver").setLevel(logging.ERROR)
-
-    configure_project(package_name)
-    with KedroSession.create(env=env, conf_source=conf_source) as session:
-        session.run()
-
-
-if __name__ == "__main__":
-    main()
-```
-
-2. **Define a new entry point**: Open `<project_root>/src/setup.py` in a text editor or IDE and add a new line in the definition of the `entry_point` tuple, so that it becomes:
-
-```python
-entry_point = (..., "databricks_run = <package_name>.databricks_run:main")
-```
-
-Remember to replace <package_name> with the correct package name for your project.
-
-This process adds an entry point to your project which can be used to run it on Databricks.
-
-```{note}
-Because you are no longer using the default entry-point for Kedro, you will not be able to run your project with the options it usually provides. Instead, the `databricks_run` entry point in the above code and in the `databricks-iris` starter contains a simple implementation of two options:
-- `--package_name` (required): the package name (defined in `setup.py`) of your packaged project.
-- `--env`: specifies a [Kedro configuration environment](../../configuration/configuration_basics.md#configuration-environments) to load for your run.
-- `--conf-source`: specifies the location of the `conf/` directory to use with your Kedro project.
-```
+ ```{note}
+ If you are not using the `databricks-iris` starter to create a Kedro project, **and** you are working with a version of Kedro **earlier than 0.19.0**, then you should [disable file-based logging](https://docs.kedro.org/en/0.18.14/logging/logging.html#disable-file-based-logging) to prevent Kedro from attempting to write to the read-only file system.
+ ```
 
 ### Package your project
 
@@ -170,21 +116,21 @@ A Kedro project's configuration and data do not get included when it is packaged
 
 Your packaged Kedro project needs access to data and configuration in order to run. Therefore, you will need to upload your project's data and configuration to a location accessible to Databricks. In this guide, we will store the data on the Databricks File System (DBFS).
 
-The `databricks-iris` starter contains a [catalog](../../data/data_catalog.md#the-data-catalog) that is set up to access data stored in DBFS (`<project_root>/conf/`). You will point your project to use configuration stored on DBFS using the `--conf-source` option when you create your job on Databricks.
+The `databricks-iris` starter contains a [catalog](../../data/data_catalog.md) that is set up to access data stored in DBFS (`<project_root>/conf/`). You will point your project to use configuration stored on DBFS using the `--conf-source` option when you create your job on Databricks.
 
-There are several ways to upload data to DBFS: you can use the [DBFS API](https://learn.microsoft.com/en-us/azure/databricks/dev-tools/api/latest/dbfs), the [`dbutils` module](https://docs.databricks.com/dev-tools/databricks-utils.html) in a Databricks notebook or the [Databricks CLI](https://docs.databricks.com/dev-tools/cli/dbfs-cli.html). In this guide, it is recommended to use the Databricks CLI because of the convenience it offers.
+There are several ways to upload data to DBFS: you can use the [DBFS API](https://learn.microsoft.com/en-us/azure/databricks/dev-tools/api/latest/dbfs), the [`dbutils` module](https://docs.databricks.com/dev-tools/databricks-utils.html) in a Databricks notebook or the [Databricks CLI](https://docs.databricks.com/archive/dev-tools/cli/dbfs-cli.html). In this guide, it is recommended to use the Databricks CLI because of the convenience it offers.
 
 - **Upload your project's data and config**: at the command line in your local environment, use the following Databricks CLI commands to upload your project's locally stored data and configuration to DBFS:
 
 ```bash
-databricks fs cp --recursive <project_root>/data/ dbfs:/FileStore/iris-databricks/data
-databricks fs cp --recursive <project_root>/conf/ dbfs:/FileStore/iris-databricks/conf
+databricks fs cp --recursive <project_root>/data/ dbfs:/FileStore/iris_databricks/data
+databricks fs cp --recursive <project_root>/conf/ dbfs:/FileStore/iris_databricks/conf
 ```
 
 The `--recursive` flag ensures that the entire folder and its contents are uploaded. You can list the contents of the destination folder in DBFS using the following command:
 
 ```bash
-databricks fs ls dbfs:/FileStore/iris-databricks/data
+databricks fs ls dbfs:/FileStore/iris_databricks/data
 ```
 
 You should see the contents of the project's `data/` directory printed to your terminal:
@@ -199,6 +145,10 @@ You should see the contents of the project's `data/` directory printed to your t
 07_model_output
 08_reporting
 ```
+
+```{note}
+ If you are not using the `databricks-iris` starter to create a Kedro project, then you should make sure your catalog entries point to the DBFS storage.
+ ```
 
 ## Deploy and run your Kedro project using the workspace UI
 
@@ -229,7 +179,7 @@ Configure the job cluster with the following settings:
 
 - In the `name` field enter `kedro_deployment_demo`.
 - Select the radio button for `Single node`.
-- Select the runtime `12.2 LTS` in the `Databricks runtime version` field.
+- Select the runtime `13.3 LTS` in the `Databricks runtime version` field.
 - Leave all other settings with their default values in place.
 
 The final configuration for the job cluster should look the same as the following:
@@ -242,14 +192,14 @@ Configure the job with the following settings:
 
 - Enter `iris-databricks` in the `Name` field.
 - In the dropdown menu for the `Type` field, select `Python wheel`.
-- In the `Package name` field, enter `iris_databricks`. This is the name of your package as defined in your project's `src/setup.py` file.
-- In the `Entry Point` field, enter `databricks_run`. This is the name of the [entry point](#create-an-entry-point-for-databricks) to run your package from.
+- In the `Package name` field, enter `iris_databricks`. This is the name of your package as defined in your project's `pyproject.toml` file.
+- In the `Entry Point` field, enter `iris-databricks`. This is the name of the entry point to run your package from as defined in your project's `pyproject.toml` file.
 - Ensure the job cluster you created in step two is selected in the dropdown menu for the `Cluster` field.
 - In the `Dependent libraries` field, click `Add` and upload [your project's `.whl` file](#package-your-project), making sure that the radio buttons for `Upload` and `Python Whl` are selected for the `Library Source` and `Library Type` fields.
-- In the `Parameters` field, enter the following list of runtime options:
+- In the `Parameters` field, enter the following runtime option:
 
 ```bash
-["--conf-source", "/dbfs/FileStore/iris-databricks/conf", "--package-name", "iris_databricks"]
+["--conf-source", "/dbfs/FileStore/iris_databricks/conf"]
 ```
 
 The final configuration for your job should look the same as the following:
@@ -270,7 +220,7 @@ The following things happen when you run your job:
 
 - The job cluster is provisioned and started (job status: `Pending`).
 - The packaged Kedro project and all its dependencies are installed (job status: `Pending`)
-- The packaged Kedro project is run from the specified `databricks_run` entry point (job status: `In Progress`).
+- The packaged Kedro project is run from the specified `iris-databricks` entry point (job status: `In Progress`).
 - The packaged code finishes executing and the job cluster is stopped (job status: `Succeeded`).
 
 A run will take roughly six to seven minutes.
@@ -303,8 +253,8 @@ The Databricks API enables you to programmatically interact with Databricks serv
 
 1. [Set up your Kedro project for deployment on Databricks](#set-up-your-project-for-deployment-to-databricks)
 2. Create a JSON file containing your job's configuration.
-3. Use the Jobs API's [`/create` endpoint](https://docs.databricks.com/workflows/jobs/jobs-api-updates.html#create) to create a new job.
-4. Use the Jobs API's [`/runs/submit` endpoint](https://docs.databricks.com/workflows/jobs/jobs-api-updates.html#runs-submit) to run your newly created job.
+3. Use the Jobs API's [`/create` endpoint](https://docs.databricks.com/en/reference/jobs-2.0-api.html#create) to create a new job.
+4. Use the Jobs API's [`/runs/submit` endpoint](https://docs.databricks.com/en/reference/jobs-2.0-api.html#runs-submit) to run your newly created job.
 
 ### How to use the Databricks CLI to automatically deploy a Kedro project
 
@@ -313,8 +263,8 @@ The Databricks Command Line Interface (CLI) is another way to automate deploymen
 1. [Set up your Kedro project for deployment on Databricks.](#set-up-your-project-for-deployment-to-databricks)
 2. Install the Databricks CLI and authenticate it with your workspace.
 3. Create a JSON file containing your job's configuration.
-4. Use the [`jobs create` command](https://docs.databricks.com/dev-tools/cli/jobs-cli.html#create-a-job) to create a new job.
-5. Use the [`jobs run-now` command](https://docs.databricks.com/dev-tools/cli/jobs-cli.html#run-a-job) to run your newly created job.
+4. Use the [`jobs create` command](https://docs.databricks.com/archive/dev-tools/cli/jobs-cli.html#create-a-job) to create a new job.
+5. Use the [`jobs run-now` command](https://docs.databricks.com/archive/dev-tools/cli/jobs-cli.html#run-a-job) to run your newly created job.
 
 ## Summary
 

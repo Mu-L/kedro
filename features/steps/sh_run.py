@@ -27,6 +27,7 @@ def run(
     Example:
     ::
         "ls"
+
         "ls -la"
         "chmod 754 local/file"
 
@@ -36,8 +37,7 @@ def run(
     """
     if isinstance(cmd, str) and split:
         cmd = shlex.split(cmd)
-    # pylint: disable=subprocess-run-check
-    result = subprocess.run(cmd, input="", capture_output=True, **kwargs)
+    result = subprocess.run(cmd, input="", capture_output=True, **kwargs)  # noqa: PLW1510, S603
     result.stdout = result.stdout.decode("utf-8")
     result.stderr = result.stderr.decode("utf-8")
     if print_output:
@@ -60,9 +60,9 @@ def check_run(cmd: list | str, print_output: bool = False) -> None:
         split_cmd = cmd
 
     if print_output:
-        subprocess.check_call(split_cmd)
+        subprocess.check_call(split_cmd)  # noqa: S603
     else:
-        subprocess.check_call(split_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        subprocess.check_call(split_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)  # noqa: S603
 
 
 class ChildTerminatingPopen(subprocess.Popen):
@@ -83,7 +83,7 @@ class ChildTerminatingPopen(subprocess.Popen):
             **kwargs: keyword arguments such as env and cwd
 
         """
-        super().__init__(  # type: ignore
+        super().__init__(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, **kwargs
         )
 
@@ -91,7 +91,7 @@ class ChildTerminatingPopen(subprocess.Popen):
         """Terminate process and children."""
         try:
             proc = psutil.Process(self.pid)
-            procs = [proc] + proc.children(recursive=True)
+            procs = [proc, *proc.children(recursive=True)]
         except psutil.NoSuchProcess:
             pass
         else:

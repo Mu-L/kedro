@@ -4,7 +4,11 @@ This section explains how to build project documentation, and how to bundle a Ke
 
 Kedro also has an advanced feature which supports packaging on a pipeline level allowing you share and reuse pipelines across projects! To read more about this please look at the [section on micro-packaging](../nodes_and_pipelines/micro_packaging.md).
 
-## Add documentation to a Kedro project
+## Add documentation to a Kedro project if you have not selected `docs` tool
+
+```{note}
+These steps are for projects without the `docs` tool option. You can verify this by looking to see if you don't have a `docs` directory in your project.
+```
 
 There are several documentation frameworks for Python projects. This section describes how to use [Sphinx](https://www.sphinx-doc.org).
 
@@ -15,13 +19,6 @@ pip install sphinx
 ```
 
 ### Set up the Sphinx project files
-
-```{warning}
-Currently, Kedro projects are created with a `docs/source` subdirectory, which gets pre-populated with two Sphinx configuration files (`conf.py`, and `index.rst`), needed by the `kedro build-docs` command. This command is deprecated; it will be removed in Kedro version 0.19, along with those dummy files.
-
-Before proceeding with these instructions, back up the contents of `docs/source/index.rst` and remove both `docs/source/conf.py` and `docs/source/index.rst`.
-```
-
 First, run the following command:
 
 ```bash
@@ -146,6 +143,19 @@ main(
 ```
 
 This is equivalent to `python -m <package_name>` at the command line, and you can pass in all the arguments that correspond to the options described by `python -m <package_name> --help`.
+
+```{note}
+If you run the packaged project in the interactive environment like IPython or Databricks you can also consume the output of the `main()`
+which returns the `session.run()` output.
+```
+
+```python
+from spaceflights.__main__ import main
+
+def run_kedro_pipeline():
+   result = main(pipeline_name=<pipeline>)
+   do_something_with(<result>)
+```
 
 ### Docker, Airflow and other deployment targets
 

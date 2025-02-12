@@ -1,23 +1,27 @@
 from __future__ import annotations
 
+import re
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import pytest
 
 from kedro.framework.hooks import _create_hook_manager
-from kedro.io import AbstractDataSet, DataCatalog, DatasetError, MemoryDataset
+from kedro.io import (
+    AbstractDataset,
+    DataCatalog,
+    DatasetError,
+    KedroDataCatalog,
+    MemoryDataset,
+)
 from kedro.pipeline import node
+from kedro.pipeline.modular_pipeline import pipeline
 from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 from kedro.runner import ThreadRunner
 from tests.runner.conftest import exception_fn, identity, return_none, sink, source
 
 
 class TestValidThreadRunner:
-    def test_create_default_data_set(self):
-        data_set = ThreadRunner().create_default_data_set("")
-        assert isinstance(data_set, MemoryDataset)
-
     def test_thread_run(self, fan_out_fan_in, catalog):
         catalog.add_feed_dict({"A": 42})
         result = ThreadRunner().run(fan_out_fan_in, catalog)
@@ -38,6 +42,36 @@ class TestValidThreadRunner:
         assert "Z" in result
         assert result["Z"] == ("42", "42", "42")
 
+    def test_does_not_log_not_using_async(self, fan_out_fan_in, catalog, caplog):
+        catalog.add_feed_dict({"A": 42})
+        ThreadRunner().run(fan_out_fan_in, catalog)
+        assert "Using synchronous mode for loading and saving data." not in caplog.text
+
+    @pytest.mark.parametrize("catalog_type", [DataCatalog, KedroDataCatalog])
+    def test_thread_run_with_patterns(self, catalog_type):
+        """Test warm-up is done and patterns are resolved before running pipeline.
+
+        Without the warm-up "Dataset 'dummy_1' has already been registered" error
+        would be raised for this test. We check that the dataset was registered at the
+        warm-up, and we successfully passed to loading it.
+        """
+        catalog_conf = {"{catch_all}": {"type": "MemoryDataset"}}
+
+        catalog = catalog_type.from_config(catalog_conf)
+
+        test_pipeline = pipeline(
+            [
+                node(identity, inputs="dummy_1", outputs="output_1", name="node_1"),
+                node(identity, inputs="dummy_2", outputs="output_2", name="node_2"),
+                node(identity, inputs="dummy_1", outputs="output_3", name="node_3"),
+            ]
+        )
+
+        with pytest.raises(
+            Exception, match="Data for MemoryDataset has not been saved yet"
+        ):
+            ThreadRunner().run(test_pipeline, catalog)
+
 
 class TestMaxWorkers:
     @pytest.mark.parametrize(
@@ -55,7 +89,7 @@ class TestMaxWorkers:
         catalog,
         user_specified_number,
         expected_number,
-    ):  # noqa: too-many-arguments
+    ):
         """
         We initialize the runner with max_workers=4.
         `fan_out_fan_in` pipeline needs 3 threads.
@@ -111,7 +145,7 @@ class TestInvalidThreadRunner:
             ThreadRunner().run(pipeline, catalog)
 
 
-class LoggingDataset(AbstractDataSet):
+class LoggingDataset(AbstractDataset):
     def __init__(self, log, name, value=None):
         self.log = log
         self.name = name
@@ -216,3 +250,76 @@ class TestThreadRunnerRelease:
 
         # we want to see both datasets being released
         assert list(log) == [("release", "save"), ("load", "load"), ("release", "load")]
+
+
+class TestSuggestResumeScenario:
+    @pytest.mark.parametrize(
+        "failing_node_names,expected_pattern",
+        [
+            (["node1_A", "node1_B"], r"No nodes ran."),
+            (["node2"], r"(node1_A,node1_B|node1_B,node1_A)"),
+            (["node3_A"], r"(node3_A,node3_B|node3_B,node3_A|node3_A)"),
+            (["node4_A"], r"(node3_A,node3_B|node3_B,node3_A|node3_A)"),
+            (["node3_A", "node4_A"], r"(node3_A,node3_B|node3_B,node3_A|node3_A)"),
+            (["node2", "node4_A"], r"(node1_A,node1_B|node1_B,node1_A)"),
+        ],
+    )
+    def test_suggest_resume_scenario(
+        self,
+        caplog,
+        two_branches_crossed_pipeline,
+        persistent_dataset_catalog,
+        failing_node_names,
+        expected_pattern,
+    ):
+        nodes = {n.name: n for n in two_branches_crossed_pipeline.nodes}
+        for name in failing_node_names:
+            two_branches_crossed_pipeline -= modular_pipeline([nodes[name]])
+            two_branches_crossed_pipeline += modular_pipeline(
+                [nodes[name]._copy(func=exception_fn)]
+            )
+        with pytest.raises(Exception):
+            ThreadRunner().run(
+                two_branches_crossed_pipeline,
+                persistent_dataset_catalog,
+                hook_manager=_create_hook_manager(),
+            )
+        assert re.search(expected_pattern, caplog.text)
+
+    @pytest.mark.parametrize(
+        "failing_node_names,expected_pattern",
+        [
+            (["node1_A", "node1_B"], r"No nodes ran."),
+            (["node2"], r'"node1_A,node1_B"'),
+            (["node3_A"], r"(node3_A,node3_B|node3_A)"),
+            (["node4_A"], r"(node3_A,node3_B|node3_A)"),
+            (["node3_A", "node4_A"], r"(node3_A,node3_B|node3_A)"),
+            (["node2", "node4_A"], r'"node1_A,node1_B"'),
+        ],
+    )
+    def test_stricter_suggest_resume_scenario(
+        self,
+        caplog,
+        two_branches_crossed_pipeline_variable_inputs,
+        persistent_dataset_catalog,
+        failing_node_names,
+        expected_pattern,
+    ):
+        """
+        Stricter version of previous test.
+        Covers pipelines where inputs are shared across nodes.
+        """
+        test_pipeline = two_branches_crossed_pipeline_variable_inputs
+
+        nodes = {n.name: n for n in test_pipeline.nodes}
+        for name in failing_node_names:
+            test_pipeline -= modular_pipeline([nodes[name]])
+            test_pipeline += modular_pipeline([nodes[name]._copy(func=exception_fn)])
+
+        with pytest.raises(Exception, match="test exception"):
+            ThreadRunner(max_workers=1).run(
+                test_pipeline,
+                persistent_dataset_catalog,
+                hook_manager=_create_hook_manager(),
+            )
+        assert re.search(expected_pattern, caplog.text)

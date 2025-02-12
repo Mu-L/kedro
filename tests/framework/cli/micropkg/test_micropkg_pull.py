@@ -17,6 +17,14 @@ from kedro.framework.project import settings
 PIPELINE_NAME = "my_pipeline"
 
 
+@pytest.fixture
+def temp_dir_with_context_manager(tmp_path):
+    mock_temp_dir = Mock()
+    mock_temp_dir.__enter__ = Mock(return_value=tmp_path)
+    mock_temp_dir.__exit__ = Mock(return_value=None)
+    return mock_temp_dir
+
+
 def call_pipeline_create(cli, metadata, pipeline_name=PIPELINE_NAME):
     result = CliRunner().invoke(
         cli, ["pipeline", "create", pipeline_name], obj=metadata
@@ -51,7 +59,6 @@ class TestMicropkgPullCommand:
             "__init__.py",
             "nodes.py",
             "pipeline.py",
-            "README.md",
         }
 
     @pytest.mark.parametrize("env", [None, "local"])
@@ -75,7 +82,6 @@ class TestMicropkgPullCommand:
         fake_metadata,
     ):
         """Test for pulling a valid sdist file locally."""
-        # pylint: disable=too-many-locals
         call_pipeline_create(fake_project_cli, fake_metadata)
         call_micropkg_package(fake_project_cli, fake_metadata)
         call_pipeline_delete(fake_project_cli, fake_metadata)
@@ -84,7 +90,7 @@ class TestMicropkgPullCommand:
         config_path = (
             fake_repo_path / settings.CONF_SOURCE / "base" / "pipelines" / PIPELINE_NAME
         )
-        test_path = fake_repo_path / "src" / "tests" / "pipelines" / PIPELINE_NAME
+        test_path = fake_repo_path / "tests" / "pipelines" / PIPELINE_NAME
         # Make sure the files actually deleted before pulling from the sdist file.
         assert not source_path.exists()
         assert not test_path.exists()
@@ -109,14 +115,13 @@ class TestMicropkgPullCommand:
         pipeline_name = alias or PIPELINE_NAME
         destination = destination or Path()
         source_dest = fake_package_path / destination / pipeline_name
-        test_dest = fake_repo_path / "src" / "tests" / destination / pipeline_name
+        test_dest = fake_repo_path / "tests" / destination / pipeline_name
         config_env = env or "base"
         params_config = (
             fake_repo_path
             / settings.CONF_SOURCE
             / config_env
-            / "parameters"
-            / f"{pipeline_name}.yml"
+            / f"parameters_{pipeline_name}.yml"
         )
 
         self.assert_package_files_exist(source_dest)
@@ -149,19 +154,17 @@ class TestMicropkgPullCommand:
         into another location and check that unpacked files
         are identical to the ones in the original modular pipeline.
         """
-        # pylint: disable=too-many-locals
         pipeline_name = "another_pipeline"
         call_pipeline_create(fake_project_cli, fake_metadata)
         call_micropkg_package(fake_project_cli, fake_metadata, alias=pipeline_name)
 
         source_path = fake_package_path / "pipelines" / PIPELINE_NAME
-        test_path = fake_repo_path / "src" / "tests" / "pipelines" / PIPELINE_NAME
+        test_path = fake_repo_path / "tests" / "pipelines" / PIPELINE_NAME
         source_params_config = (
             fake_repo_path
             / settings.CONF_SOURCE
             / "base"
-            / "parameters"
-            / f"{PIPELINE_NAME}.yml"
+            / f"parameters_{PIPELINE_NAME}.yml"
         )
 
         sdist_file = (
@@ -183,14 +186,13 @@ class TestMicropkgPullCommand:
         pipeline_name = alias or pipeline_name
         destination = destination or Path()
         source_dest = fake_package_path / destination / pipeline_name
-        test_dest = fake_repo_path / "src" / "tests" / destination / pipeline_name
+        test_dest = fake_repo_path / "tests" / destination / pipeline_name
         config_env = env or "base"
         dest_params_config = (
             fake_repo_path
             / settings.CONF_SOURCE
             / config_env
-            / "parameters"
-            / f"{pipeline_name}.yml"
+            / f"parameters_{pipeline_name}.yml"
         )
 
         assert not filecmp.dircmp(source_path, source_dest).diff_files
@@ -231,14 +233,13 @@ class TestMicropkgPullCommand:
         assert "pulled and unpacked" in result.output
 
         source_dest = fake_package_path / destination / pipeline_name
-        test_dest = fake_repo_path / "src" / "tests" / destination / pipeline_name
+        test_dest = fake_repo_path / "tests" / destination / pipeline_name
         config_env = "base"
         params_config = (
             fake_repo_path
             / settings.CONF_SOURCE
             / config_env
-            / "parameters"
-            / f"{pipeline_name}.yml"
+            / f"parameters_{pipeline_name}.yml"
         )
 
         self.assert_package_files_exist(source_dest)
@@ -281,14 +282,13 @@ class TestMicropkgPullCommand:
         assert "pulled and unpacked" in result.output
 
         source_dest = fake_package_path / destination / pipeline_name
-        test_dest = fake_repo_path / "src" / "tests" / destination / pipeline_name
+        test_dest = fake_repo_path / "tests" / destination / pipeline_name
         config_env = "base"
         params_config = (
             fake_repo_path
             / settings.CONF_SOURCE
             / config_env
-            / "parameters"
-            / f"{pipeline_name}.yml"
+            / f"parameters_{pipeline_name}.yml"
         )
 
         self.assert_package_files_exist(source_dest)
@@ -297,7 +297,7 @@ class TestMicropkgPullCommand:
         expected_test_files = {"__init__.py", "test_pipeline.py"}
         assert actual_test_files == expected_test_files
 
-    def test_micropkg_alias_refactors_imports(  # pylint: disable=too-many-locals
+    def test_micropkg_alias_refactors_imports(
         self, fake_project_cli, fake_package_path, fake_repo_path, fake_metadata
     ):
         call_pipeline_create(fake_project_cli, fake_metadata)
@@ -438,9 +438,8 @@ class TestMicropkgPullCommand:
         """Test for pulling a valid sdist file locally,
         but `tests` directory is missing from the sdist file.
         """
-        # pylint: disable=too-many-locals
         call_pipeline_create(fake_project_cli, fake_metadata)
-        test_path = fake_repo_path / "src" / "tests" / "pipelines" / PIPELINE_NAME
+        test_path = fake_repo_path / "tests" / "pipelines" / PIPELINE_NAME
         shutil.rmtree(test_path)
         assert not test_path.exists()
         call_micropkg_package(fake_project_cli, fake_metadata)
@@ -451,8 +450,7 @@ class TestMicropkgPullCommand:
             fake_repo_path
             / settings.CONF_SOURCE
             / "base"
-            / "parameters"
-            / f"{PIPELINE_NAME}.yml"
+            / f"parameters_{PIPELINE_NAME}.yml"
         )
         # Make sure the files actually deleted before pulling from the sdist file.
         assert not source_path.exists()
@@ -474,14 +472,13 @@ class TestMicropkgPullCommand:
 
         pipeline_name = alias or PIPELINE_NAME
         source_dest = fake_package_path / pipeline_name
-        test_dest = fake_repo_path / "src" / "tests" / pipeline_name
+        test_dest = fake_repo_path / "tests" / "pipelines" / pipeline_name
         config_env = env or "base"
         params_config = (
             fake_repo_path
             / settings.CONF_SOURCE
             / config_env
-            / "parameters"
-            / f"{pipeline_name}.yml"
+            / f"parameters_{pipeline_name}.yml"
         )
 
         self.assert_package_files_exist(source_dest)
@@ -503,21 +500,19 @@ class TestMicropkgPullCommand:
         Test for pulling a valid sdist file locally, but `config` directory is missing
         from the sdist file.
         """
-        # pylint: disable=too-many-locals
         call_pipeline_create(fake_project_cli, fake_metadata)
         source_params_config = (
             fake_repo_path
             / settings.CONF_SOURCE
             / "base"
-            / "parameters"
-            / f"{PIPELINE_NAME}.yml"
+            / f"parameters_{PIPELINE_NAME}.yml"
         )
         source_params_config.unlink()
         call_micropkg_package(fake_project_cli, fake_metadata)
         call_pipeline_delete(fake_project_cli, fake_metadata)
 
         source_path = fake_package_path / "pipelines" / PIPELINE_NAME
-        test_path = fake_repo_path / "src" / "tests" / "pipelines" / PIPELINE_NAME
+        test_path = fake_repo_path / "tests" / "pipelines" / PIPELINE_NAME
         # Make sure the files actually deleted before pulling from the sdist file.
         assert not source_path.exists()
         assert not test_path.exists()
@@ -538,14 +533,13 @@ class TestMicropkgPullCommand:
 
         pipeline_name = alias or PIPELINE_NAME
         source_dest = fake_package_path / pipeline_name
-        test_dest = fake_repo_path / "src" / "tests" / pipeline_name
+        test_dest = fake_repo_path / "tests" / pipeline_name
         config_env = env or "base"
         dest_params_config = (
             fake_repo_path
             / settings.CONF_SOURCE
             / config_env
-            / "parameters"
-            / f"{pipeline_name}.yml"
+            / f"parameters_{pipeline_name}.yml"
         )
 
         self.assert_package_files_exist(source_dest)
@@ -566,11 +560,11 @@ class TestMicropkgPullCommand:
         env,
         alias,
         fake_metadata,
+        temp_dir_with_context_manager,
     ):
         """
         Test for pulling a valid sdist file from pypi.
         """
-        # pylint: disable=too-many-locals
         call_pipeline_create(fake_project_cli, fake_metadata)
         # We mock the `pip download` call, and manually create a package sdist file
         # to simulate the pypi scenario instead
@@ -581,13 +575,12 @@ class TestMicropkgPullCommand:
         call_pipeline_delete(fake_project_cli, fake_metadata)
 
         source_path = fake_package_path / "pipelines" / PIPELINE_NAME
-        test_path = fake_repo_path / "src" / "tests" / "pipelines" / PIPELINE_NAME
+        test_path = fake_repo_path / "tests" / "pipelines" / PIPELINE_NAME
         source_params_config = (
             fake_repo_path
             / settings.CONF_SOURCE
             / "base"
-            / "parameters"
-            / f"{PIPELINE_NAME}.yml"
+            / f"parameters_{PIPELINE_NAME}.yml"
         )
         # Make sure the files actually deleted before pulling from pypi.
         assert not source_path.exists()
@@ -597,13 +590,13 @@ class TestMicropkgPullCommand:
         python_call_mock = mocker.patch("kedro.framework.cli.micropkg.python_call")
         mocker.patch(
             "kedro.framework.cli.micropkg.tempfile.TemporaryDirectory",
-            return_value=tmp_path,
+            return_value=temp_dir_with_context_manager,
         )
 
         # Mock needed to avoid an error when build.util.project_wheel_metadata
         # calls tempfile.TemporaryDirectory, which is mocked
         class _FakeWheelMetadata:
-            def get_all(self, name, failobj=None):  # pylint: disable=unused-argument
+            def get_all(self, name, failobj=None):
                 return []
 
         mocker.patch(
@@ -639,14 +632,13 @@ class TestMicropkgPullCommand:
 
         pipeline_name = alias or PIPELINE_NAME
         source_dest = fake_package_path / pipeline_name
-        test_dest = fake_repo_path / "src" / "tests" / pipeline_name
+        test_dest = fake_repo_path / "tests" / pipeline_name
         config_env = env or "base"
         dest_params_config = (
             fake_repo_path
             / settings.CONF_SOURCE
             / config_env
-            / "parameters"
-            / f"{pipeline_name}.yml"
+            / f"parameters_{pipeline_name}.yml"
         )
 
         self.assert_package_files_exist(source_dest)
@@ -656,7 +648,12 @@ class TestMicropkgPullCommand:
         assert actual_test_files == expected_test_files
 
     def test_invalid_pull_from_pypi(
-        self, fake_project_cli, mocker, tmp_path, fake_metadata
+        self,
+        fake_project_cli,
+        mocker,
+        tmp_path,
+        fake_metadata,
+        temp_dir_with_context_manager,
     ):
         """
         Test for pulling package from pypi, and it cannot be found.
@@ -671,7 +668,7 @@ class TestMicropkgPullCommand:
         )
         mocker.patch(
             "kedro.framework.cli.micropkg.tempfile.TemporaryDirectory",
-            return_value=tmp_path,
+            return_value=temp_dir_with_context_manager,
         )
 
         invalid_pypi_name = "non_existent"
@@ -696,7 +693,12 @@ class TestMicropkgPullCommand:
         assert pypi_error_message in result.stdout
 
     def test_pull_from_pypi_more_than_one_sdist_file(
-        self, fake_project_cli, mocker, tmp_path, fake_metadata
+        self,
+        fake_project_cli,
+        mocker,
+        tmp_path,
+        fake_metadata,
+        temp_dir_with_context_manager,
     ):
         """
         Test for pulling a sdist file with `pip download`, but there are more than one sdist
@@ -712,7 +714,7 @@ class TestMicropkgPullCommand:
         mocker.patch("kedro.framework.cli.micropkg.python_call")
         mocker.patch(
             "kedro.framework.cli.micropkg.tempfile.TemporaryDirectory",
-            return_value=tmp_path,
+            return_value=temp_dir_with_context_manager,
         )
         result = CliRunner().invoke(
             fake_project_cli, ["micropkg", "pull", PIPELINE_NAME], obj=fake_metadata
@@ -722,7 +724,12 @@ class TestMicropkgPullCommand:
         assert "Error: More than 1 or no sdist files found:" in result.output
 
     def test_pull_unsupported_protocol_by_fsspec(
-        self, fake_project_cli, fake_metadata, tmp_path, mocker
+        self,
+        fake_project_cli,
+        fake_metadata,
+        tmp_path,
+        mocker,
+        temp_dir_with_context_manager,
     ):
         protocol = "unsupported"
         exception_message = f"Protocol not known: {protocol}"
@@ -735,7 +742,7 @@ class TestMicropkgPullCommand:
         )
         mocker.patch(
             "kedro.framework.cli.micropkg.tempfile.TemporaryDirectory",
-            return_value=tmp_path,
+            return_value=temp_dir_with_context_manager,
         )
 
         result = CliRunner().invoke(
@@ -779,7 +786,7 @@ class TestMicropkgPullCommand:
         assert sdist_file.is_file()
 
         with tarfile.open(sdist_file, "r:gz") as tar:
-            tar.extractall(tmp_path)
+            safe_extract(tar, tmp_path)
 
         # Create extra project
         extra_project = tmp_path / f"{PIPELINE_NAME}-0.1_extra"
@@ -818,7 +825,7 @@ class TestMicropkgPullCommand:
         assert sdist_file.is_file()
 
         with tarfile.open(sdist_file, "r:gz") as tar:
-            tar.extractall(tmp_path)
+            safe_extract(tar, tmp_path)
 
         # Create extra package
         extra_package = tmp_path / f"{PIPELINE_NAME}-0.1" / f"{PIPELINE_NAME}_extra"
@@ -866,10 +873,9 @@ class TestMicropkgPullCommand:
     "chdir_to_dummy_project", "cleanup_dist", "cleanup_pyproject_toml"
 )
 class TestMicropkgPullFromManifest:
-    def test_micropkg_pull_all(  # pylint: disable=too-many-locals
+    def test_micropkg_pull_all(
         self, fake_repo_path, fake_project_cli, fake_metadata, mocker
     ):
-        # pylint: disable=import-outside-toplevel, line-too-long
         from kedro.framework.cli import micropkg
 
         spy = mocker.spy(micropkg, "_pull_package")
@@ -909,7 +915,6 @@ class TestMicropkgPullFromManifest:
     def test_micropkg_pull_all_empty_toml(
         self, fake_repo_path, fake_project_cli, fake_metadata, mocker
     ):
-        # pylint: disable=import-outside-toplevel
         from kedro.framework.cli import micropkg
 
         spy = mocker.spy(micropkg, "_pull_package")
