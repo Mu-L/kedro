@@ -12,8 +12,7 @@ To avoid the overhead of setting up and syncing a local development environment 
 
 **I want a hybrid workflow model combining local IDE with Databricks**
 
-
-The workflow documented in ["Use an IDE, dbx and Databricks Repos to develop a Kedro project"](./databricks_ide_development_workflow.md) is for those that prefer to work in a local IDE.
+The workflow documented in ["Use Databricks Asset Bundles to deploy a Kedro project"](./databricks_ide_databricks_asset_bundles_workflow.md) is for those that prefer to work in a local IDE.
 
 If you're in the early stages of learning Kedro, or your project requires constant testing and adjustments, choose this workflow. You can use your IDE's capabilities for faster, error-free development, while testing on Databricks. Later you can make the transition into a production deployment with this approach, although you may prefer to switch to use [job-based deployment](./databricks_deployment_workflow.md) and fully optimise your workflow for production.
 
@@ -24,20 +23,20 @@ The workflow documented in ["Use a Databricks job to deploy a Kedro project"](./
 ---
 Here's a flowchart to guide your choice of workflow:
 
-```{mermaid}
-:alt: mermaid-Decision making diagram for deploying Kedro projects to Databricks
+![Decision making diagram for deploying Kedro projects to Databricks](../../meta/images/databricks-flow-chart.png)
 
-flowchart TD
-  A[Start] --> B{Do you prefer developing your projects in notebooks?}
-  B -->|Yes| C[Use a Databricks workspace to develop a Kedro project]
-  B -->|No| D{Are you a beginner with Kedro?}
-  D -->|Yes| E[Use an IDE, dbx and Databricks Repos to develop a Kedro project]
-  D -->|No| F{Do you have advanced project requirements<br>e.g. CI/CD, scheduling, production-ready, complex pipelines, etc.?}
-  F -->|Yes| G{Is rapid development needed for your project needs?}
-  F -->|No| H[Use an IDE, dbx and Databricks Repos to develop a Kedro project]
-  G -->|Yes| I[Use an IDE, dbx and Databricks Repos to develop a Kedro project]
-  G -->|No| J[Use a Databricks job to deploy a Kedro project]
-```
+% Mermaid code, see https://github.com/kedro-org/kedro/wiki/Render-Mermaid-diagrams
+% flowchart TD
+%   A[Start] --> B{Do you prefer developing your projects in notebooks?}
+%   B -->|Yes| C[Use a Databricks workspace to develop a Kedro project]
+%   B -->|No| D{Are you a beginner with Kedro?}
+%   D -->|Yes| E[Use an IDE, dbx and Databricks Repos to develop a Kedro project]
+%   D -->|No| F{Do you have advanced project requirements<br>e.g. CI/CD, scheduling, production-ready, complex pipelines, etc.?}
+%   F -->|Yes| G{Is rapid development needed for your project needs?}
+%   F -->|No| H[Use an IDE, dbx and Databricks Repos to develop a Kedro project]
+%   G -->|Yes| I[Use an IDE, dbx and Databricks Repos to develop a Kedro project]
+%   G -->|No| J[Use a Databricks job to deploy a Kedro project]
+
 
 Remember, the best choice of workflow is the one that aligns best with your project's requirements, whether that's quick development, notebook-based coding, or a production-ready setup. Make sure to consider these factors alongside your comfort level with Kedro when making your decision.
 
@@ -46,7 +45,8 @@ Remember, the best choice of workflow is the one that aligns best with your proj
 :maxdepth: 1
 
 databricks_notebooks_development_workflow.md
-databricks_ide_development_workflow.md
+databricks_ide_databricks_asset_bundles_workflow.md
 databricks_deployment_workflow
 databricks_visualisation
+databricks_dbx_workflow.md
 ```

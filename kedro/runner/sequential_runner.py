@@ -3,14 +3,21 @@ used to run the ``Pipeline`` in a sequential manner using a topological sort
 of provided nodes.
 """
 
-from collections import Counter
-from itertools import chain
+from __future__ import annotations
 
-from pluggy import PluginManager
+from concurrent.futures import (
+    Executor,
+    ThreadPoolExecutor,
+)
+from typing import TYPE_CHECKING, Any
 
-from kedro.io import AbstractDataSet, DataCatalog, MemoryDataset
-from kedro.pipeline import Pipeline
-from kedro.runner.runner import AbstractRunner, run_node
+from kedro.runner.runner import AbstractRunner
+
+if TYPE_CHECKING:
+    from pluggy import PluginManager
+
+    from kedro.io import CatalogProtocol
+    from kedro.pipeline import Pipeline
 
 
 class SequentialRunner(AbstractRunner):
@@ -19,69 +26,58 @@ class SequentialRunner(AbstractRunner):
     topological sort of provided nodes.
     """
 
-    def __init__(self, is_async: bool = False):
-        """Instantiates the runner classs.
+    def __init__(
+        self,
+        is_async: bool = False,
+        extra_dataset_patterns: dict[str, dict[str, Any]] | None = None,
+    ):
+        """Instantiates the runner class.
 
         Args:
             is_async: If True, the node inputs and outputs are loaded and saved
                 asynchronously with threads. Defaults to False.
+            extra_dataset_patterns: Extra dataset factory patterns to be added to the catalog
+                during the run. This is used to set the default datasets to MemoryDataset
+                for `SequentialRunner`.
 
         """
-        super().__init__(is_async=is_async)
+        default_dataset_pattern = {"{default}": {"type": "MemoryDataset"}}
+        self._extra_dataset_patterns = extra_dataset_patterns or default_dataset_pattern
+        super().__init__(
+            is_async=is_async, extra_dataset_patterns=self._extra_dataset_patterns
+        )
 
-    def create_default_data_set(self, ds_name: str) -> AbstractDataSet:
-        """Factory method for creating the default data set for the runner.
-
-        Args:
-            ds_name: Name of the missing data set
-
-        Returns:
-            An instance of an implementation of AbstractDataSet to be used
-            for all unregistered data sets.
-
-        """
-        return MemoryDataset()
+    def _get_executor(self, max_workers: int) -> Executor:
+        return ThreadPoolExecutor(
+            max_workers=1
+        )  # Single-threaded for sequential execution
 
     def _run(
         self,
         pipeline: Pipeline,
-        catalog: DataCatalog,
-        hook_manager: PluginManager,
-        session_id: str = None,
+        catalog: CatalogProtocol,
+        hook_manager: PluginManager | None = None,
+        session_id: str | None = None,
     ) -> None:
         """The method implementing sequential pipeline running.
 
         Args:
             pipeline: The ``Pipeline`` to run.
-            catalog: The ``DataCatalog`` from which to fetch data.
+            catalog: An implemented instance of ``CatalogProtocol`` from which to fetch data.
             hook_manager: The ``PluginManager`` to activate hooks.
             session_id: The id of the session.
 
         Raises:
             Exception: in case of any downstream node failure.
         """
-        nodes = pipeline.nodes
-        done_nodes = set()
-
-        load_counts = Counter(chain.from_iterable(n.inputs for n in nodes))
-
-        for exec_index, node in enumerate(nodes):
-            try:
-                run_node(node, catalog, hook_manager, self._is_async, session_id)
-                done_nodes.add(node)
-            except Exception:
-                self._suggest_resume_scenario(pipeline, done_nodes, catalog)
-                raise
-
-            # decrement load counts and release any data sets we've finished with
-            for data_set in node.inputs:
-                load_counts[data_set] -= 1
-                if load_counts[data_set] < 1 and data_set not in pipeline.inputs():
-                    catalog.release(data_set)
-            for data_set in node.outputs:
-                if load_counts[data_set] < 1 and data_set not in pipeline.outputs():
-                    catalog.release(data_set)
-
+        if not self._is_async:
             self._logger.info(
-                "Completed %d out of %d tasks", exec_index + 1, len(nodes)
+                "Using synchronous mode for loading and saving data. Use the --async flag "
+                "for potential performance gains. https://docs.kedro.org/en/stable/nodes_and_pipelines/run_a_pipeline.html#load-and-save-asynchronously"
             )
+        super()._run(
+            pipeline=pipeline,
+            catalog=catalog,
+            hook_manager=hook_manager,
+            session_id=session_id,
+        )

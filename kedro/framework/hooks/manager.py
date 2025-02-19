@@ -1,8 +1,11 @@
 """This module provides an utility function to retrieve the global hook_manager singleton
 in a Kedro's execution process.
 """
+
 import logging
-from typing import Any, Iterable
+from collections.abc import Iterable
+from inspect import isclass
+from typing import Any
 
 from pluggy import PluginManager
 
@@ -46,13 +49,18 @@ def _register_hooks(hook_manager: PluginManager, hooks: Iterable[Any]) -> None:
         # case hooks have already been registered, so we perform a simple check
         # here to avoid an error being raised and break user's workflow.
         if not hook_manager.is_registered(hooks_collection):
+            if isclass(hooks_collection):
+                raise TypeError(
+                    "KedroSession expects hooks to be registered as instances. "
+                    "Have you forgotten the `()` when registering a hook class ?"
+                )
             hook_manager.register(hooks_collection)
 
 
-def _register_hooks_setuptools(
+def _register_hooks_entry_points(
     hook_manager: PluginManager, disabled_plugins: Iterable[str]
 ) -> None:
-    """Register pluggy hooks from setuptools entrypoints.
+    """Register pluggy hooks from python package entrypoints.
 
     Args:
         hook_manager: Hook manager instance to register the hooks with.
@@ -101,11 +109,11 @@ class _NullPluginManager:
     """This class creates an empty ``hook_manager`` that will ignore all calls to hooks,
     allowing the runner to function if no ``hook_manager`` has been instantiated."""
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         pass
 
-    def __getattr__(self, name):
+    def __getattr__(self, name: str) -> Any:
         return self
 
-    def __call__(self, *args, **kwargs):
+    def __call__(self, *args: Any, **kwargs: Any) -> None:
         pass
