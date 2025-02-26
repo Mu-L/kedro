@@ -2,20 +2,17 @@
 This module contains ``CachedDataset``, a dataset wrapper which caches in memory the data saved,
 so that the user avoids io operations with slow storage media
 """
+
 from __future__ import annotations
 
 import logging
-import warnings
 from typing import Any
 
-from kedro.io.core import VERSIONED_FLAG_KEY, AbstractDataSet, Version
+from kedro.io.core import VERSIONED_FLAG_KEY, AbstractDataset, Version
 from kedro.io.memory_dataset import MemoryDataset
 
-# https://github.com/pylint-dev/pylint/issues/4300#issuecomment-1043601901
-CachedDataSet: type[CachedDataset]
 
-
-class CachedDataset(AbstractDataSet):
+class CachedDataset(AbstractDataset):
     """``CachedDataset`` is a dataset wrapper which caches in memory the data saved,
     so that the user avoids io operations with slow storage media.
 
@@ -40,10 +37,10 @@ class CachedDataset(AbstractDataSet):
 
     def __init__(
         self,
-        dataset: AbstractDataSet | dict,
-        version: Version = None,
-        copy_mode: str = None,
-        metadata: dict[str, Any] = None,
+        dataset: AbstractDataset | dict,
+        version: Version | None = None,
+        copy_mode: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ):
         """Creates a new instance of ``CachedDataset`` pointing to the
         provided Python object.
@@ -64,16 +61,18 @@ class CachedDataset(AbstractDataSet):
             ValueError: If the provided dataset is not a valid dict/YAML
                 representation of a dataset or an actual dataset.
         """
+        self._EPHEMERAL = True
+
         if isinstance(dataset, dict):
             self._dataset = self._from_config(dataset, version)
-        elif isinstance(dataset, AbstractDataSet):
+        elif isinstance(dataset, AbstractDataset):
             self._dataset = dataset
         else:
             raise ValueError(
                 "The argument type of 'dataset' should be either a dict/YAML "
                 "representation of the dataset, or the actual dataset object."
             )
-        self._cache = MemoryDataset(copy_mode=copy_mode)
+        self._cache = MemoryDataset(copy_mode=copy_mode)  # type: ignore[abstract]
         self.metadata = metadata
 
     def _release(self) -> None:
@@ -81,7 +80,7 @@ class CachedDataset(AbstractDataSet):
         self._dataset.release()
 
     @staticmethod
-    def _from_config(config, version):
+    def _from_config(config: dict, version: Version | None) -> AbstractDataset:
         if VERSIONED_FLAG_KEY in config:
             raise ValueError(
                 "Cached datasets should specify that they are versioned in the "
@@ -89,18 +88,22 @@ class CachedDataset(AbstractDataSet):
             )
         if version:
             config[VERSIONED_FLAG_KEY] = True
-            return AbstractDataSet.from_config(
+            return AbstractDataset.from_config(
                 "_cached", config, version.load, version.save
             )
-        return AbstractDataSet.from_config("_cached", config)
+        return AbstractDataset.from_config("_cached", config)
 
     def _describe(self) -> dict[str, Any]:
-        return {
-            "dataset": self._dataset._describe(),  # noqa: protected-access
-            "cache": self._cache._describe(),  # noqa: protected-access
-        }
+        return {"dataset": self._dataset._describe(), "cache": self._cache._describe()}
 
-    def _load(self):
+    def __repr__(self) -> str:
+        object_description = {
+            "dataset": self._dataset._pretty_repr(self._dataset._describe()),
+            "cache": self._dataset._pretty_repr(self._cache._describe()),
+        }
+        return self._pretty_repr(object_description)
+
+    def load(self) -> Any:
         data = self._cache.load() if self._cache.exists() else self._dataset.load()
 
         if not self._cache.exists():
@@ -108,29 +111,16 @@ class CachedDataset(AbstractDataSet):
 
         return data
 
-    def _save(self, data: Any) -> None:
+    def save(self, data: Any) -> None:
         self._dataset.save(data)
         self._cache.save(data)
 
     def _exists(self) -> bool:
         return self._cache.exists() or self._dataset.exists()
 
-    def __getstate__(self):
+    def __getstate__(self) -> dict[str, Any]:
         # clearing the cache can be prevented by modifying
         # how parallel runner handles datasets (not trivial!)
         logging.getLogger(__name__).warning("%s: clearing cache to pickle.", str(self))
         self._cache.release()
         return self.__dict__
-
-
-def __getattr__(name):
-    if name == "CachedDataSet":
-        alias = CachedDataset
-        warnings.warn(
-            f"{repr(name)} has been renamed to {repr(alias.__name__)}, "
-            f"and the alias will be removed in Kedro 0.19.0",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return alias
-    raise AttributeError(f"module {repr(__name__)} has no attribute {repr(name)}")

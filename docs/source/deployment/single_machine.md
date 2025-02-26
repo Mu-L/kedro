@@ -71,7 +71,7 @@ If neither containers nor packages are viable options for your project, you can 
 You will need to follow these steps to get your project running:
 
 ### Use GitHub workflow to copy your project
-This workflow posits that development of the Kedro project is done on a local environment under version control by Git. Commits are pushed to a remote server (e.g. GitHub, GitLab, Bitbucket, etc.).
+This workflow assumes that development of the Kedro project is done on a local environment under version control by Git. Commits are pushed to a remote server (e.g. GitHub, GitLab, Bitbucket, etc.).
 
 Deployment of the (latest) code on a production server is accomplished through cloning and the periodic pulling of changes from the Git remote. The pipeline is then executed on the server.
 
@@ -114,7 +114,7 @@ conda install -c conda-forge kedro
 Install the project’s dependencies, by running the following in the project's root directory:
 
 ```console
-pip install -r src/requirements.txt
+pip install -r requirements.txt
 ```
 
 After having installed your project on the remote server you can run the Kedro project as follows from the root of the project:

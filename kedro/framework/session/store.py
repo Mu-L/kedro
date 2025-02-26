@@ -1,4 +1,5 @@
 """This module implements a dict-like store object used to persist Kedro sessions."""
+
 from __future__ import annotations
 
 import logging
@@ -33,7 +34,7 @@ class BaseSessionStore(UserDict):
         )
         return {}
 
-    def save(self):
+    def save(self) -> None:
         """Persist the session store"""
         self._logger.debug(
             "'save()' not implemented for '%s'. Skipping the step.",

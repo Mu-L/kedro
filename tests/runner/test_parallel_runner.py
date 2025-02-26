@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-import importlib
-import sys
+import re
 from concurrent.futures.process import ProcessPoolExecutor
 from typing import Any
 
@@ -9,7 +8,7 @@ import pytest
 
 from kedro.framework.hooks import _create_hook_manager
 from kedro.io import (
-    AbstractDataSet,
+    AbstractDataset,
     DataCatalog,
     DatasetError,
     LambdaDataset,
@@ -19,11 +18,9 @@ from kedro.pipeline import node
 from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 from kedro.runner import ParallelRunner
 from kedro.runner.parallel_runner import (
-    _MAX_WINDOWS_WORKERS,
     ParallelRunnerManager,
-    _run_node_synchronization,
-    _SharedMemoryDataset,
 )
+from kedro.runner.runner import _MAX_WINDOWS_WORKERS
 from tests.runner.conftest import (
     exception_fn,
     identity,
@@ -34,21 +31,21 @@ from tests.runner.conftest import (
 )
 
 
-def test_deprecation():
-    class_name = "_SharedMemoryDataSet"
-    with pytest.warns(DeprecationWarning, match=f"{repr(class_name)} has been renamed"):
-        getattr(importlib.import_module("kedro.runner.parallel_runner"), class_name)
+class SingleProcessDataset(AbstractDataset):
+    def __init__(self):
+        self._SINGLE_PROCESS = True
+
+    def _load(self):
+        pass
+
+    def _save(self):
+        pass
+
+    def _describe(self):
+        pass
 
 
-@pytest.mark.skipif(
-    sys.platform.startswith("win"), reason="Due to bug in parallel runner"
-)
 class TestValidParallelRunner:
-    def test_create_default_data_set(self):
-        # data_set is a proxy to a dataset in another process.
-        data_set = ParallelRunner().create_default_data_set("")
-        assert isinstance(data_set, _SharedMemoryDataset)
-
     @pytest.mark.parametrize("is_async", [False, True])
     def test_parallel_run(self, is_async, fan_out_fan_in, catalog):
         catalog.add_feed_dict({"A": 42})
@@ -76,10 +73,12 @@ class TestValidParallelRunner:
         assert len(result["Z"]) == 3
         assert result["Z"] == ("42", "42", "42")
 
+    def test_log_not_using_async(self, fan_out_fan_in, catalog, caplog):
+        catalog.add_feed_dict({"A": 42})
+        ParallelRunner().run(fan_out_fan_in, catalog)
+        assert "Using synchronous mode for loading and saving data." in caplog.text
 
-@pytest.mark.skipif(
-    sys.platform.startswith("win"), reason="Due to bug in parallel runner"
-)
+
 class TestMaxWorkers:
     @pytest.mark.parametrize("is_async", [False, True])
     @pytest.mark.parametrize(
@@ -103,7 +102,7 @@ class TestMaxWorkers:
         cpu_cores,
         user_specified_number,
         expected_number,
-    ):  # noqa: too-many-arguments
+    ):
         """
         The system has 2 cores, but we initialize the runner with max_workers=4.
         `fan_out_fan_in` pipeline needs 3 processes.
@@ -136,17 +135,20 @@ class TestMaxWorkers:
         assert parallel_runner._max_workers == _MAX_WINDOWS_WORKERS
 
 
-@pytest.mark.skipif(
-    sys.platform.startswith("win"), reason="Due to bug in parallel runner"
-)
 @pytest.mark.parametrize("is_async", [False, True])
 class TestInvalidParallelRunner:
-    def test_task_validation(self, is_async, fan_out_fan_in, catalog):
+    def test_task_node_validation(self, is_async, fan_out_fan_in, catalog):
         """ParallelRunner cannot serialise the lambda function."""
         catalog.add_feed_dict({"A": 42})
         pipeline = modular_pipeline([fan_out_fan_in, node(lambda x: x, "Z", "X")])
         with pytest.raises(AttributeError):
             ParallelRunner(is_async=is_async).run(pipeline, catalog)
+
+    def test_task_dataset_validation(self, is_async, fan_out_fan_in, catalog):
+        """ParallelRunner cannot serialise datasets marked with `_SINGLE_PROCESS`."""
+        catalog.add("A", SingleProcessDataset())
+        with pytest.raises(AttributeError):
+            ParallelRunner(is_async=is_async).run(fan_out_fan_in, catalog)
 
     def test_task_exception(self, is_async, fan_out_fan_in, catalog):
         catalog.add_feed_dict(feed_dict={"A": 42})
@@ -172,7 +174,7 @@ class TestInvalidParallelRunner:
         with pytest.raises(DatasetError, match=pattern):
             ParallelRunner(is_async=is_async).run(pipeline, catalog)
 
-    def test_data_set_not_serialisable(self, is_async, fan_out_fan_in):
+    def test_dataset_not_serialisable(self, is_async, fan_out_fan_in):
         """Data set A cannot be serialisable because _load and _save are not
         defined in global scope.
         """
@@ -196,7 +198,7 @@ class TestInvalidParallelRunner:
         pipeline = modular_pipeline([node(return_not_serialisable, "A", "B")])
         catalog.add_feed_dict(feed_dict={"A": 42})
         pattern = (
-            rf"{str(data.__class__)} cannot be serialised. ParallelRunner implicit "
+            rf"{data.__class__!s} cannot be serialised. ParallelRunner implicit "
             rf"memory datasets can only be used with serialisable data"
         )
 
@@ -228,7 +230,7 @@ class TestInvalidParallelRunner:
             runner.run(fan_out_fan_in, catalog)
 
 
-class LoggingDataset(AbstractDataSet):
+class LoggingDataset(AbstractDataset):
     def __init__(self, log, name, value=None):
         self.log = log
         self.name = name
@@ -249,13 +251,26 @@ class LoggingDataset(AbstractDataSet):
         return {}
 
 
-if not sys.platform.startswith("win"):
-    ParallelRunnerManager.register("LoggingDataset", LoggingDataset)  # noqa: no-member
+ParallelRunnerManager.register("LoggingDataset", LoggingDataset)
 
 
-@pytest.mark.skipif(
-    sys.platform.startswith("win"), reason="Due to bug in parallel runner"
-)
+@pytest.fixture
+def logging_dataset_catalog():
+    log = []
+    persistent_dataset = LoggingDataset(log, "in", "stuff")
+    return DataCatalog(
+        {
+            "ds0_A": persistent_dataset,
+            "ds0_B": persistent_dataset,
+            "ds2_A": persistent_dataset,
+            "ds2_B": persistent_dataset,
+            "dsX": persistent_dataset,
+            "dsY": persistent_dataset,
+            "params:p": MemoryDataset(1),
+        }
+    )
+
+
 @pytest.mark.parametrize("is_async", [False, True])
 class TestParallelRunnerRelease:
     def test_dont_release_inputs_and_outputs(self, is_async):
@@ -265,7 +280,6 @@ class TestParallelRunnerRelease:
         pipeline = modular_pipeline(
             [node(identity, "in", "middle"), node(identity, "middle", "out")]
         )
-        # noqa: no-member
         catalog = DataCatalog(
             {
                 "in": runner._manager.LoggingDataset(log, "in", "stuff"),
@@ -289,7 +303,6 @@ class TestParallelRunnerRelease:
                 node(sink, "second", None),
             ]
         )
-        # noqa: no-member
         catalog = DataCatalog(
             {
                 "first": runner._manager.LoggingDataset(log, "first"),
@@ -317,7 +330,6 @@ class TestParallelRunnerRelease:
                 node(sink, "dataset", None, name="fred"),
             ]
         )
-        # noqa: no-member
         catalog = DataCatalog(
             {"dataset": runner._manager.LoggingDataset(log, "dataset")}
         )
@@ -350,62 +362,74 @@ class TestParallelRunnerRelease:
         assert list(log) == [("release", "save"), ("load", "load"), ("release", "load")]
 
 
-@pytest.mark.parametrize("is_async", [False, True])
-class TestRunNodeSynchronisationHelper:
-    """Test class for _run_node_synchronization helper. It is tested manually
-    in isolation since it's called in the subprocess, which ParallelRunner
-    patches have no access to.
-    """
-
-    @pytest.fixture(autouse=True)
-    def mock_logging(self, mocker):
-        return mocker.patch("logging.config.dictConfig")
-
-    @pytest.fixture
-    def mock_run_node(self, mocker):
-        return mocker.patch("kedro.runner.parallel_runner.run_node")
-
-    @pytest.fixture
-    def mock_configure_project(self, mocker):
-        return mocker.patch("kedro.framework.project.configure_project")
-
-    def test_package_name_and_logging_provided(
+class TestSuggestResumeScenario:
+    @pytest.mark.parametrize(
+        "failing_node_names,expected_pattern",
+        [
+            (["node1_A", "node1_B"], r"No nodes ran."),
+            (["node2"], r"(node1_A,node1_B|node1_B,node1_A)"),
+            (["node3_A"], r"(node3_A,node3_B|node3_B,node3_A|node3_A)"),
+            (["node4_A"], r"(node3_A,node3_B|node3_B,node3_A|node3_A)"),
+            (["node3_A", "node4_A"], r"(node3_A,node3_B|node3_B,node3_A|node3_A)"),
+            (["node2", "node4_A"], r"(node1_A,node1_B|node1_B,node1_A)"),
+        ],
+    )
+    def test_suggest_resume_scenario(
         self,
-        mock_logging,
-        mock_run_node,
-        mock_configure_project,
-        is_async,
-        mocker,
+        caplog,
+        two_branches_crossed_pipeline,
+        logging_dataset_catalog,
+        failing_node_names,
+        expected_pattern,
     ):
-        mocker.patch("multiprocessing.get_start_method", return_value="spawn")
-        node_ = mocker.sentinel.node
-        catalog = mocker.sentinel.catalog
-        session_id = "fake_session_id"
-        package_name = mocker.sentinel.package_name
+        nodes = {n.name: n for n in two_branches_crossed_pipeline.nodes}
+        for name in failing_node_names:
+            two_branches_crossed_pipeline -= modular_pipeline([nodes[name]])
+            two_branches_crossed_pipeline += modular_pipeline(
+                [nodes[name]._copy(func=exception_fn)]
+            )
+        with pytest.raises(Exception):
+            ParallelRunner().run(
+                two_branches_crossed_pipeline,
+                logging_dataset_catalog,
+                hook_manager=_create_hook_manager(),
+            )
+        assert re.search(expected_pattern, caplog.text)
 
-        _run_node_synchronization(
-            node_,
-            catalog,
-            is_async,
-            session_id,
-            package_name=package_name,
-            logging_config={"fake_logging_config": True},
-        )
-        mock_run_node.assert_called_once()
-        mock_logging.assert_called_once_with({"fake_logging_config": True})
-        mock_configure_project.assert_called_once_with(package_name)
-
-    def test_package_name_not_provided(
-        self, mock_logging, mock_run_node, is_async, mocker
+    @pytest.mark.parametrize(
+        "failing_node_names,expected_pattern",
+        [
+            (["node1_A", "node1_B"], r"No nodes ran."),
+            (["node2"], r'"node1_A,node1_B"'),
+            (["node3_A"], r"(node3_A,node3_B|node3_A)"),
+            (["node4_A"], r"(node3_A,node3_B|node3_A)"),
+            (["node3_A", "node4_A"], r"(node3_A,node3_B|node3_A)"),
+            (["node2", "node4_A"], r'"node1_A,node1_B"'),
+        ],
+    )
+    def test_stricter_suggest_resume_scenario(
+        self,
+        caplog,
+        two_branches_crossed_pipeline_variable_inputs,
+        logging_dataset_catalog,
+        failing_node_names,
+        expected_pattern,
     ):
-        mocker.patch("multiprocessing.get_start_method", return_value="fork")
-        node_ = mocker.sentinel.node
-        catalog = mocker.sentinel.catalog
-        session_id = "fake_session_id"
-        package_name = mocker.sentinel.package_name
+        """
+        Stricter version of previous test.
+        Covers pipelines where inputs are shared across nodes.
+        """
+        test_pipeline = two_branches_crossed_pipeline_variable_inputs
 
-        _run_node_synchronization(
-            node_, catalog, is_async, session_id, package_name=package_name
-        )
-        mock_run_node.assert_called_once()
-        mock_logging.assert_not_called()
+        nodes = {n.name: n for n in test_pipeline.nodes}
+        for name in failing_node_names:
+            test_pipeline -= modular_pipeline([nodes[name]])
+            test_pipeline += modular_pipeline([nodes[name]._copy(func=exception_fn)])
+
+        with pytest.raises(Exception, match="test exception"):
+            ParallelRunner().run(
+                test_pipeline,
+                logging_dataset_catalog,
+                hook_manager=_create_hook_manager(),
+            )
+        assert re.search(expected_pattern, caplog.text)

@@ -4,6 +4,7 @@ this directory. You don't need to import the fixtures as pytest will
 discover them automatically. More info here:
 https://docs.pytest.org/en/latest/fixture.html
 """
+
 import shutil
 import sys
 import tempfile
@@ -26,6 +27,7 @@ from kedro.framework.cli.registry import registry_cli
 from kedro.framework.cli.starters import create_cli
 from kedro.framework.project import configure_project, pipelines, settings
 from kedro.framework.startup import ProjectMetadata
+from kedro.io import KedroDataCatalog
 
 REPO_NAME = "dummy_project"
 PACKAGE_NAME = "dummy_package"
@@ -82,13 +84,14 @@ def dummy_config(fake_root_dir, fake_metadata):
 @fixture(scope="module")
 def fake_metadata(fake_root_dir):
     metadata = ProjectMetadata(
-        fake_root_dir / REPO_NAME / "pyproject.toml",
-        PACKAGE_NAME,
-        "CLI Testing Project",
-        fake_root_dir / REPO_NAME,
-        kedro_version,
-        fake_root_dir / REPO_NAME / "src",
-        kedro_version,
+        config_file=fake_root_dir / REPO_NAME / "pyproject.toml",
+        package_name=PACKAGE_NAME,
+        project_name="CLI Testing Project",
+        project_path=fake_root_dir / REPO_NAME,
+        kedro_init_version=kedro_version,
+        source_dir=fake_root_dir / REPO_NAME / "src",
+        tools=None,
+        example_pipeline=None,
     )
     return metadata
 
@@ -114,7 +117,9 @@ def fake_kedro_cli():
 
 @fixture(scope="module")
 def fake_project_cli(
-    fake_repo_path: Path, dummy_config: Path, fake_kedro_cli: click.CommandCollection
+    fake_repo_path: Path,
+    dummy_config: Path,
+    fake_kedro_cli: click.CommandCollection,
 ):
     old_settings = settings.as_dict()
     starter_path = Path(__file__).resolve().parents[3]
@@ -124,17 +129,76 @@ def fake_project_cli(
     )
     # Delete the project logging.yml, which leaves behind info.log and error.log files.
     # This leaves logging config as the framework default.
-    (fake_repo_path / "conf" / "base" / "logging.yml").unlink()
+    try:
+        (fake_repo_path / "conf" / "logging.yml").unlink()
+    except FileNotFoundError:
+        pass
 
     # NOTE: Here we load a couple of modules, as they would be imported in
     # the code and tests.
     # It's safe to remove the new entries from path due to the python
     # module caching mechanism. Any `reload` on it will not work though.
     old_path = sys.path.copy()
-    sys.path = [str(fake_repo_path / "src")] + sys.path
+    sys.path = [str(fake_repo_path / "src"), *sys.path]
 
     import_module(PACKAGE_NAME)
     configure_project(PACKAGE_NAME)
+    yield fake_kedro_cli
+
+    # reset side-effects of configure_project
+    pipelines.configure()
+
+    for key, value in old_settings.items():
+        settings.set(key, value)
+    sys.path = old_path
+
+    # configure_project does imports that add PACKAGE_NAME.pipelines,
+    # PACKAGE_NAME.settings to sys.modules. These need to be removed.
+    # Ideally we would reset sys.modules to exactly what it was before
+    # running anything, but removal of distutils.build.commands from
+    # sys.modules mysteriously makes some tests for `kedro micropkg package`
+    # fail on Windows, Python 3.7 and 3.8.
+    for module in list(sys.modules.keys()):
+        if module.startswith(PACKAGE_NAME):
+            del sys.modules[module]
+
+
+# We use `None` as the first parameter since the default `DATA_CATALOG_CLASS`
+# set in `settings.py` is `DataCatalog`. We do not set `DataCatalog` explicitly
+# in fixture params to test loading the default class.
+@fixture(scope="module", params=[None, KedroDataCatalog])
+def fake_project_cli_parametrized(
+    fake_repo_path: Path,
+    dummy_config: Path,
+    fake_kedro_cli: click.CommandCollection,
+    request,
+):
+    # TODO: remove parametrization after removing old catalog as KedroDataCatalog will be default
+    default_catalog = request.param
+    old_settings = settings.as_dict()
+    starter_path = Path(__file__).resolve().parents[3]
+    starter_path = starter_path / "features" / "steps" / "test_starter"
+    CliRunner().invoke(
+        fake_kedro_cli, ["new", "-c", str(dummy_config), "--starter", str(starter_path)]
+    )
+    # Delete the project logging.yml, which leaves behind info.log and error.log files.
+    # This leaves logging config as the framework default.
+    try:
+        (fake_repo_path / "conf" / "logging.yml").unlink()
+    except FileNotFoundError:
+        pass
+
+    # NOTE: Here we load a couple of modules, as they would be imported in
+    # the code and tests.
+    # It's safe to remove the new entries from path due to the python
+    # module caching mechanism. Any `reload` on it will not work though.
+    old_path = sys.path.copy()
+    sys.path = [str(fake_repo_path / "src"), *sys.path]
+
+    import_module(PACKAGE_NAME)
+    configure_project(PACKAGE_NAME)
+    if default_catalog is not None:
+        settings.set("DATA_CATALOG_CLASS", default_catalog)
     yield fake_kedro_cli
 
     # reset side-effects of configure_project
